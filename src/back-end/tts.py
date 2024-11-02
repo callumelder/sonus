@@ -1,44 +1,72 @@
-import requests
 from dotenv import load_dotenv
 import os
+from typing import IO
+from io import BytesIO
+from elevenlabs import VoiceSettings
+from elevenlabs.client import ElevenLabs
+import pygame
 
 load_dotenv()
 
-xi_api_key = os.getenv("XI_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("XI_API_KEY")
+client = ElevenLabs(
+    api_key=ELEVENLABS_API_KEY,
+)
 
-CHUNK_SIZE = 1024
-
-# George voice"
-url = f"https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb"
-
-headers = {
-  "Accept": "audio/mpeg",
-  "Content-Type": "application/json",
-  "xi-api-key": xi_api_key
-}
-
-text_sample = """
-Hi Sarah,
-
-I have been adding Roozbeh to the discussion via Cc, please stop replying just to me and include him so he can reply directly to you.
-
-However, he has said he will be driving (car rego is 274EA8), he'd like tea for his beverage and his dietary restrictions is no pork.
-
-Thanks,
-Callum
+text = """
+This is a sample text for audio streaming
 """
 
-data = {
-  "text": text_sample,
-  "model_id": "eleven_monolingual_v1",
-  "voice_settings": {
-    "stability": 0.5,
-    "similarity_boost": 0.5
-  }
-}
+def text_to_speech_stream(text: str) -> IO[bytes]:
+    # Perform the text-to-speech conversion
+    response = client.text_to_speech.convert(
+        voice_id="pNInz6obpgDQGcFmaJgB",  # Adam pre-made voice
+        output_format="mp3_22050_32",
+        text=text,
+        model_id="eleven_multilingual_v2",
+        voice_settings=VoiceSettings(
+            stability=0.0,
+            similarity_boost=1.0,
+            style=0.0,
+            use_speaker_boost=True,
+        ),
+    )
 
-response = requests.post(url, json=data, headers=headers)
-with open('output.mp3', 'wb') as f:
-    for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+    # Create a BytesIO object to hold the audio data in memory
+    audio_stream = BytesIO()
+
+    # Write each chunk of audio data to the stream
+    for chunk in response:
         if chunk:
-            f.write(chunk)
+            audio_stream.write(chunk)
+
+    # Reset stream position to the beginning
+    audio_stream.seek(0)
+
+    return audio_stream
+
+def play_audio_stream(audio_stream: IO[bytes]):
+    # Initialize pygame mixer
+    pygame.mixer.init(frequency=22050)
+    
+    try:
+        # Load the audio stream
+        pygame.mixer.music.load(audio_stream)
+        
+        # Play the audio
+        pygame.mixer.music.play()
+        
+        # Wait for the audio to finish
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(10)
+            
+    finally:
+        # Clean up
+        pygame.mixer.quit()
+
+if __name__ == "__main__":
+    # Get the audio stream
+    audio_stream = text_to_speech_stream(text)
+    
+    # Play the audio
+    play_audio_stream(audio_stream)
