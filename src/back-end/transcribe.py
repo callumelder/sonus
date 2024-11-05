@@ -153,6 +153,9 @@ def listen_print_loop(responses: object) -> str:
         # If the previous result was longer than this one, we need to print
         # some extra spaces to overwrite the previous result
         overwrite_chars = " " * (num_chars_printed - len(transcript))
+        
+        if result.is_final:
+            break
 
         if not result.is_final:
             sys.stdout.write(transcript + overwrite_chars + "\r")
@@ -188,7 +191,7 @@ def main() -> None:
     )
 
     streaming_config = speech.StreamingRecognitionConfig(
-        config=config, interim_results=True
+        config=config, interim_results=True, single_utterance=True
     )
 
     with MicrophoneStream(RATE, CHUNK) as stream:
