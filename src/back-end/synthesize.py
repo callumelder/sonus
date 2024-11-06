@@ -13,10 +13,6 @@ client = ElevenLabs(
     api_key=ELEVENLABS_API_KEY,
 )
 
-text = """
-This is a sample text for audio streaming
-"""
-
 def text_to_speech_stream(text: str) -> IO[bytes]:
     # Perform the text-to-speech conversion
     response = client.text_to_speech.convert(
@@ -63,10 +59,3 @@ def play_audio_stream(audio_stream: IO[bytes]):
     finally:
         # Clean up
         pygame.mixer.quit()
-
-if __name__ == "__main__":
-    # Get the audio stream
-    audio_stream = text_to_speech_stream(text)
-    
-    # Play the audio
-    play_audio_stream(audio_stream)
