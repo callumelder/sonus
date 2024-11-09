@@ -6,28 +6,22 @@ from authenticate import get_token
 
 from google.cloud import speech
 
-from typing import Annotated
+from typing import Annotated, Literal
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_openai import ChatOpenAI
 
-from langchain_core.messages import HumanMessage, AIMessage
-
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import ToolNode
 from langchain_google_community import GmailToolkit
-from langchain_google_community.gmail.utils import (
-    build_resource_service,
-    get_gmail_credentials,
-)
+from langchain_google_community.gmail.utils import build_resource_service, get_gmail_credentials
 
 load_dotenv()
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
-
-def chatbot(state: State) -> State:    
-    # 1. Speech to text
+    
+def transcribe(state: State) -> State:
     with MicrophoneStream() as stream:
         audio_generator = stream.generator()
         requests = (
@@ -36,18 +30,37 @@ def chatbot(state: State) -> State:
         )
         responses = client.streaming_recognize(streaming_config, requests)
         transcribed_text = listen_print_loop(responses)
+        
+    return {
+        "messages": [transcribed_text]
+    }
+
+def synthesize(state: State) -> State:
+    message = state["messages"][-1]
+    if message.content:
+        audio_stream = text_to_speech_stream(message.content)
+        play_audio_stream(audio_stream)
     
-    # 2. LLM interaction
-    state["messages"].append(HumanMessage(content=transcribed_text))
-    response = llm.invoke(state["messages"])
-    print(f"AI Message: {response}")
-    state["messages"].append(AIMessage(content=response.content))
+    return {
+        "messages": []
+    }
+
+def chatbot(state: State) -> State:
+    latest_transcription = state["messages"][-1]
+    response = llm_with_tools.invoke(latest_transcription.content)
+    print(f"Response: {response}")
     
-    # 3. Text to speech
-    audio_stream = text_to_speech_stream(response.content)
-    play_audio_stream(audio_stream)
+    return {
+        "messages": [response]
+    }
     
-    return state
+def tools_condition(state: State) -> Literal["tools", "synthesize"]:
+    """Return either 'tools' or 'synthesize' as the next node"""
+    latest_message = state["messages"][-1]
+    
+    if latest_message.tool_calls:
+        return "tools"
+    return "synthesize"
 
     
 if __name__ == "__main__":
@@ -68,12 +81,31 @@ if __name__ == "__main__":
     gmail_tools = toolkit.get_tools()
     tools = [tool for tool in gmail_tools]
     llm = ChatOpenAI(model="gpt-4o")
+    llm_with_tools = llm.bind_tools(tools)
     
     # Create and compile the graph
     graph_builder = StateGraph(State)
+    tool_node = ToolNode(tools=tools)
+    
+    # Nodes
     graph_builder.add_node("chatbot", chatbot)
-    graph_builder.add_edge(START, "chatbot")
-    graph_builder.add_edge("chatbot", END)
+    graph_builder.add_node("tools", tool_node)
+    graph_builder.add_node("transcribe", transcribe)
+    graph_builder.add_node("synthesize", synthesize)
+    
+    # Edges
+    graph_builder.add_edge(START, "transcribe")
+    graph_builder.add_edge("transcribe", "chatbot")
+    graph_builder.add_edge("tools", "chatbot")
+    graph_builder.add_edge("synthesize", "transcribe")
+    # graph_builder.add_edge("chatbot", END)
+    
+    # Conditional Edges
+    graph_builder.add_conditional_edges(
+        "chatbot",
+        tools_condition
+    )
+    
     graph = graph_builder.compile()
 
     # Setup speech client
@@ -87,6 +119,7 @@ if __name__ == "__main__":
         config=config, interim_results=True
     )
     
+    print("Ready")
     state = State(messages=[])
     while True:
         state = graph.invoke(state)
