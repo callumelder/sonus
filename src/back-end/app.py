@@ -30,20 +30,22 @@ def transcribe(state: MessagesState) -> MessagesState:
         transcribed_text = listen_print_loop(responses)
         
     return {
-        "messages": state["messages"] + [transcribed_text]
+        "messages": [transcribed_text]
     }
 
 def synthesize(state: MessagesState) -> MessagesState:
     message = state["messages"][-1]
     if message.content:
-        audio_stream = text_to_speech_stream(message.content)
-        play_audio_stream(audio_stream)
+        print("synthesize")
+        # audio_stream = text_to_speech_stream(message.content)
+        # play_audio_stream(audio_stream)
     
     return {
         "messages": []
     }
 
 def chatbot(state: MessagesState) -> MessagesState:
+    print(state["messages"])
     response = llm_with_tools.invoke(state["messages"])
     print(f"Response: {response}")
     
