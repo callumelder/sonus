@@ -6,22 +6,20 @@ from authenticate import get_token
 
 from google.cloud import speech
 
-from typing import Annotated, Literal
-from typing_extensions import TypedDict
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langchain_openai import ChatOpenAI
+from typing import Literal
 
-from langgraph.prebuilt import ToolNode
+from langchain_openai import ChatOpenAI
 from langchain_google_community import GmailToolkit
 from langchain_google_community.gmail.utils import build_resource_service, get_gmail_credentials
 
+from langgraph.prebuilt import ToolNode
+from langgraph.graph import StateGraph, MessagesState, START
+
+
 load_dotenv()
 
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
     
-def transcribe(state: State) -> State:
+def transcribe(state: MessagesState) -> MessagesState:
     with MicrophoneStream() as stream:
         audio_generator = stream.generator()
         requests = (
@@ -32,10 +30,10 @@ def transcribe(state: State) -> State:
         transcribed_text = listen_print_loop(responses)
         
     return {
-        "messages": [transcribed_text]
+        "messages": state["messages"] + [transcribed_text]
     }
 
-def synthesize(state: State) -> State:
+def synthesize(state: MessagesState) -> MessagesState:
     message = state["messages"][-1]
     if message.content:
         audio_stream = text_to_speech_stream(message.content)
@@ -45,16 +43,15 @@ def synthesize(state: State) -> State:
         "messages": []
     }
 
-def chatbot(state: State) -> State:
-    latest_transcription = state["messages"][-1]
-    response = llm_with_tools.invoke(latest_transcription.content)
+def chatbot(state: MessagesState) -> MessagesState:
+    response = llm_with_tools.invoke(state["messages"])
     print(f"Response: {response}")
     
     return {
         "messages": [response]
     }
     
-def tools_condition(state: State) -> Literal["tools", "synthesize"]:
+def tools_condition(state: MessagesState) -> Literal["tools", "synthesize"]:
     """Return either 'tools' or 'synthesize' as the next node"""
     latest_message = state["messages"][-1]
     
@@ -84,7 +81,7 @@ if __name__ == "__main__":
     llm_with_tools = llm.bind_tools(tools)
     
     # Create and compile the graph
-    graph_builder = StateGraph(State)
+    graph_builder = StateGraph(MessagesState)
     tool_node = ToolNode(tools=tools)
     
     # Nodes
@@ -110,16 +107,15 @@ if __name__ == "__main__":
 
     # Setup speech client
     client = speech.SpeechClient()
-    config = speech.RecognitionConfig(
+    recognition_config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
         sample_rate_hertz=16000,
         language_code="en-US",
     )
     streaming_config = speech.StreamingRecognitionConfig(
-        config=config, interim_results=True
+        config=recognition_config, interim_results=True
     )
     
     print("Ready")
-    state = State(messages=[])
-    while True:
-        state = graph.invoke(state)
+    state = MessagesState(messages=[])
+    state = graph.invoke(state)
