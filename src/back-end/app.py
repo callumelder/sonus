@@ -50,16 +50,16 @@ class Assistant:
         return {"messages": result}
     
 email_assistant_prompt = ChatPromptTemplate.from_template(
-   """You are an intelligent email assistant that helps with drafting, sending and reading emails aloud.
+   """You are an intelligent email assistant that helps with drafting, sending, searching and reading.
     When drafting emails, you create professional, well-structured content with clear subject lines, appropriate greetings, and proper signatures.
-    When reading emails aloud, you convey both the content and structure clearly, including saying "Subject line:" before reading the subject.
     Maintain a natural, professional yet friendly tone suitable for business communication.
 
-    Current Capabilities:
-    - Draft new emails from scratch
-    - Read existing emails aloud
-    - Convert speech to email text
-    - Process vocal commands about emails
+    You have access to these tools:
+    - GmailCreateDraft - Creates and saves email drafts for later review/editing before sending
+    - GmailSendMessage - Immediately sends out email messages to specified recipients
+    - GmailSearch - Searches your Gmail inbox using Gmail's search syntax and returns matching email IDs
+    - GmailGetMessage - Retrieves the full content of a single email message using its ID
+    - GmailGetThread - Fetches an entire email conversation thread including all replies and forwards
 
     Messages:
     {messages}"""
@@ -90,15 +90,6 @@ def synthesize(state: MessagesState) -> MessagesState:
     return {
         "messages": []
     }
-
-# def chatbot(state: MessagesState) -> MessagesState:
-#     print(state["messages"])
-#     response = llm_with_tools.invoke(state["messages"])
-#     print(f"Response: {response}")
-    
-#     return {
-#         "messages": [response]
-#     }
     
 def tools_condition(state: MessagesState) -> Literal["tools", "synthesize"]:
     """Return either 'tools' or 'synthesize' as the next node"""
