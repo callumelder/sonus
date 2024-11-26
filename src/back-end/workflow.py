@@ -1,11 +1,14 @@
 from typing import Literal
+
+# Utilities
+from transcribe import MicrophoneStream, listen_print_loop
+from synthesize import text_to_speech_stream, play_audio_stream
+from assistant import setup_assistant, setup_gmail_tools
+
 from google.cloud import speech
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import StateGraph, MessagesState, START
-from transcribe import MicrophoneStream, listen_print_loop
-from synthesize import text_to_speech_stream, play_audio_stream
-from authenticate import get_token
-from assistant import setup_assistant, setup_gmail_tools
+
 
 def transcribe(state: MessagesState) -> MessagesState:
     with MicrophoneStream() as stream:
@@ -40,11 +43,7 @@ def tools_condition(state: MessagesState) -> Literal["tools", "synthesize"]:
         return "tools"
     return "synthesize"
 
-def setup_graph():
-    # Setup gmail credentials and assistant
-    SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
-    get_token(SCOPES)
-    
+def setup_graph():    
     tools = setup_gmail_tools()
     assistant  = setup_assistant(tools)
     
