@@ -1,4 +1,5 @@
-from typing import List
+from typing import List, Dict
+from dataclasses import dataclass
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -9,61 +10,96 @@ from langchain_google_community import GmailToolkit
 from langchain_google_community.gmail.utils import build_resource_service, get_gmail_credentials
 from authenticate import get_token
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
-def get_gmail_contacts(credentials):
-    """
-    Retrieves Gmail contacts using provided credentials.
+@dataclass
+class GmailConfig:
+    SCOPES = [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/contacts.readonly"
+    ]
+    TOKEN_FILE = "token.json"
+    CREDENTIALS_FILE = "credentials.json"
+
+class GmailService:
+    _instance = None
     
-    Args:
-        credentials: Valid Google OAuth2 credentials object
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
     
-    Returns:
-        List of dictionaries containing contact information:
-        [{'name': 'Contact Name', 'email': 'email@example.com'}, ...]
-    """
-    # Build the People API service
-    service = build('people', 'v1', credentials=credentials)
+    def __init__(self):
+        if not self._initialized:
+            self._credentials = None
+            self._api_resource = None
+            self._contacts = None
+            self._initialized = True
     
-    # Initialize empty list for all contacts
-    all_contacts = []
-    page_token = None
+    def initialize(self) -> None:
+        """Initialize Gmail service with required authentication"""
+        get_token(GmailConfig.SCOPES)
+        self._credentials = get_gmail_credentials(
+            token_file=GmailConfig.TOKEN_FILE,
+            scopes=GmailConfig.SCOPES,
+            client_secrets_file=GmailConfig.CREDENTIALS_FILE,
+        )
+        self._api_resource = build_resource_service(credentials=self._credentials)
     
-    try:
-        while True:
-            # Request contacts from the API
-            results = service.people().connections().list(
-                resourceName='people/me',
-                pageSize=1000,  # Maximum allowed page size
-                pageToken=page_token,
-                personFields='names,emailAddresses'
-            ).execute()
-            
-            connections = results.get('connections', [])
-            
-            # Process each contact
-            for person in connections:
-                names = person.get('names', [])
-                emails = person.get('emailAddresses', [])
-                
-                if emails:  # Only include contacts with email addresses
-                    contact = {
-                        'name': names[0].get('displayName', 'No Name') if names else 'No Name',
-                        'email': emails[0].get('value', '')
-                    }
-                    all_contacts.append(contact)
-            
-            # Get the next page token
-            page_token = results.get('nextPageToken')
-            if not page_token:
-                break
-                
-        return all_contacts
+    @property
+    def credentials(self) -> Credentials:
+        if not self._credentials:
+            self.initialize()
+        return self._credentials
+    
+    @property
+    def api_resource(self):
+        if not self._api_resource:
+            self.initialize()
+        return self._api_resource
+    
+    @property
+    def contacts(self) -> List[Dict[str, str]]:
+        if self._contacts is None:
+            self._contacts = self._fetch_contacts()
+        return self._contacts
+    
+    def _fetch_contacts(self) -> List[Dict[str, str]]:
+        """Fetch Gmail contacts using the People API"""
+        service = build('people', 'v1', credentials=self.credentials)
+        all_contacts = []
+        page_token = None
         
-    except Exception as e:
-        print(f"Error retrieving contacts: {str(e)}")
-        return []
-
-load_dotenv()
+        try:
+            while True:
+                results = service.people().connections().list(
+                    resourceName='people/me',
+                    pageSize=1000,
+                    pageToken=page_token,
+                    personFields='names,emailAddresses'
+                ).execute()
+                
+                for person in results.get('connections', []):
+                    names = person.get('names', [])
+                    emails = person.get('emailAddresses', [])
+                    
+                    if emails:
+                        contact = {
+                            'name': names[0].get('displayName', 'No Name') if names else 'No Name',
+                            'email': emails[0].get('value', '')
+                        }
+                        all_contacts.append(contact)
+                
+                page_token = results.get('nextPageToken')
+                if not page_token:
+                    break
+                    
+            return all_contacts
+            
+        except Exception as e:
+            print(f"Error retrieving contacts: {str(e)}")
+            return []
 
 class Assistant:
     def __init__(self, runnable: Runnable):
@@ -75,8 +111,6 @@ class Assistant:
             customer_id = configuration.get("customer_id", None)
             state = {**state, "user_info": customer_id}
             result = self.runnable.invoke(state)
-            # If the LLM happens to return an empty response, we will re-prompt it
-            # for an actual response.
             if not result.tool_calls and (
                 not result.content
                 or isinstance(result.content, list)
@@ -89,32 +123,7 @@ class Assistant:
         print(f"Response: {result}")
         return {"messages": result}
 
-
-def setup_gmail_tools():
-    """Setup and return Gmail tools with proper authentication"""
-    # Define the required scopes
-    SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/contacts.readonly"]
-    
-    # Get authentication token
-    get_token(SCOPES)
-    
-    # Setup credentials and API resource
-    credentials = get_gmail_credentials(
-        token_file="token.json",
-        scopes=SCOPES,
-        client_secrets_file="credentials.json",
-    )
-    api_resource = build_resource_service(credentials=credentials)
-    
-    # Setup contacts
-    contacts = get_gmail_contacts(credentials)
-    print(contacts)
-    
-    # Setup Gmail toolkit and get tools
-    toolkit = GmailToolkit(api_resource=api_resource)
-    return toolkit.get_tools()
-
-example_emails = """
+EXAMPLE_EMAILS = """
     ---
     Hi Roozbeh and Greg,
 
@@ -131,14 +140,24 @@ example_emails = """
 
     Thanks,
     Callum
-"""
+    """
 
+def setup_gmail_tools():
+    """Setup and return Gmail tools with proper authentication"""
+    gmail_service = GmailService()
+    toolkit = GmailToolkit(api_resource=gmail_service.api_resource)
+    return toolkit.get_tools()
 
 def setup_assistant(tools: List[BaseTool]):
     """Setup and return an email assistant with the provided tools"""
+    load_dotenv()
+    
     # Setup LLM with tools
     llm = ChatOpenAI(model="gpt-4o")
     llm_with_tools = llm.bind_tools(tools)
+    
+    # Get contacts
+    gmail_service = GmailService()
     
     # Setup assistant prompt
     email_assistant_prompt = ChatPromptTemplate.from_template(
@@ -162,10 +181,16 @@ def setup_assistant(tools: List[BaseTool]):
         Always send from the user.
         
         Use these examples as your template for writing emails, ensuring you maintain their personal style:
-        {{example_emails}}
+        {example_emails}
+        
+        These are the user's known contacts which can be used to send emails to:
+        {contacts}
 
         Messages:
         {messages}"""
+    ).partial(
+        example_emails=EXAMPLE_EMAILS,
+        contacts=gmail_service.contacts
     )
     
     # Create and return assistant
