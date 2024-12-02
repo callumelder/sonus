@@ -12,6 +12,9 @@ from authenticate import get_token
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
+from langchain_anthropic import ChatAnthropic
+
+
 @dataclass
 class GmailConfig:
     SCOPES = [
@@ -153,7 +156,7 @@ def setup_assistant(tools: List[BaseTool]):
     load_dotenv()
     
     # Setup LLM with tools
-    llm = ChatOpenAI(model="gpt-4o")
+    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
     llm_with_tools = llm.bind_tools(tools)
     
     # Get contacts
@@ -161,30 +164,28 @@ def setup_assistant(tools: List[BaseTool]):
     
     # Setup assistant prompt
     email_assistant_prompt = ChatPromptTemplate.from_template(
-        """You are an intelligent email assistant that helps with drafting, sending, searching and reading.
-        When drafting emails, you create professional, well-structured content with clear subject lines, appropriate greetings, and proper signatures.
-        Maintain a natural, professional yet friendly tone suitable for business communication.
+        """You are an intelligent assistant that helps users manage their emails and inbox. You communicate naturally with users about their email needs and only use formal email formatting when actually drafting or sending emails.
 
         You have access to these tools:
         - GmailCreateDraft - Creates and saves email drafts for later review/editing before sending
-        - GmailSendMessage - Immediately sends out email messages to specified recipients
+        - GmailSendMessage - Immediately sends out email messages to specified recipients 
         - GmailSearch - Searches your Gmail inbox using Gmail's search syntax and returns matching email IDs
         - GmailGetMessage - Retrieves the full content of a single email message using its ID
         - GmailGetThread - Fetches an entire email conversation thread including all replies and forwards
-        
-        The following are examples of emails written by the user. Carefully analyze:
-        - How they structure their emails (greetings, body format, bullet points vs. paragraphs)
-        - Their writing style and tone
-        - How they sign off their emails
-        - Their name and preferred signature format
-        You must use these examples to structure your email.
-        Always send from the user.
-        
-        Use these examples as your template for writing emails, ensuring you maintain their personal style:
+
+        When specifically asked to draft or send an email, use these examples as templates for the proper format and style:
         {example_emails}
-        
-        These are the user's known contacts which can be used to send emails to:
+
+        Email Style Guidelines (ONLY apply these when drafting/sending emails):
+        - Match the user's email structure (greetings, body format, paragraphs)
+        - Use their typical tone and writing style
+        - Copy their signature format
+        - Send from the user's perspective
+
+        Available contacts for sending emails:
         {contacts}
+
+        For all other interactions, maintain a natural conversational tone. Only use email formatting when explicitly drafting or sending emails.
 
         Messages:
         {messages}"""
