@@ -1,4 +1,5 @@
 from typing import Literal
+import json
 
 # Utilities
 from transcribe import MicrophoneStream, listen_print_loop
@@ -7,7 +8,8 @@ from assistant import setup_assistant, setup_gmail_tools
 
 from google.cloud import speech
 from langgraph.prebuilt import ToolNode
-from langgraph.graph import StateGraph, MessagesState, START
+from langgraph.graph import StateGraph, MessagesState, START, END
+from langchain_core.messages import ToolMessage
 
 
 def transcribe(state: MessagesState) -> MessagesState:
@@ -27,13 +29,54 @@ def transcribe(state: MessagesState) -> MessagesState:
 def synthesize(state: MessagesState) -> MessagesState:
     message = state["messages"][-1]
     if message.content:
-        print("synthesize")
-        # audio_stream = text_to_speech_stream(message.content)
-        # play_audio_stream(audio_stream)
+        audio_stream = text_to_speech_stream(message.content)
+        play_audio_stream(audio_stream)
     
     return {
         "messages": []
     }
+    
+def should_continue(state: MessagesState) -> Literal["chatbot", "end"]:
+    """Determine if the conversation should continue or end"""
+    latest_message = state["messages"][-1]
+    
+    if "goodbye" in latest_message:
+        print("ENDING CONVERSATION")
+        return "end"
+    return "chatbot"
+
+class BasicToolNode:
+    """A node that runs the tools requested in the last AIMessage."""
+
+    def __init__(self, tools: list) -> None:
+        self.tools_by_name = {tool.name: tool for tool in tools}
+
+    def __call__(self, inputs: dict):
+        print(f"Inputs: {inputs}")
+        if messages := inputs.get("messages", []):
+            message = messages[-1]
+            transcript = message.content[0]['text']
+        else:
+            raise ValueError("No message found in input")
+        
+        # Synthesis
+        audio_stream = text_to_speech_stream(transcript)
+        play_audio_stream(audio_stream)
+        
+        # Tool Call
+        outputs = []
+        for tool_call in message.tool_calls:
+            tool_result = self.tools_by_name[tool_call["name"]].invoke(
+                tool_call["args"]
+            )
+            outputs.append(
+                ToolMessage(
+                    content=json.dumps(tool_result),
+                    name=tool_call["name"],
+                    tool_call_id=tool_call["id"],
+                )
+            )
+        return {"messages": outputs}
     
 def tools_condition(state: MessagesState) -> Literal["tools", "synthesize"]:
     """Return either 'tools' or 'synthesize' as the next node"""
@@ -49,7 +92,7 @@ def setup_graph():
     
     # Create and compile the graph
     graph_builder = StateGraph(MessagesState)
-    tool_node = ToolNode(tools=tools)
+    tool_node = BasicToolNode(tools=tools)
     
     # Nodes
     graph_builder.add_node("chatbot", assistant)
@@ -67,6 +110,15 @@ def setup_graph():
     graph_builder.add_conditional_edges(
         "chatbot",
         tools_condition
+    )
+    
+    graph_builder.add_conditional_edges(
+        "transcribe",
+        should_continue,
+        {
+            "chatbot": "chatbot",
+            "end": END
+        }
     )
     
     return graph_builder.compile()
