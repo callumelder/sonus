@@ -13,6 +13,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_anthropic import ChatAnthropic
+from time import time
 
 
 @dataclass
@@ -108,22 +109,32 @@ class Assistant:
     def __init__(self, runnable: Runnable):
         self.runnable = runnable
 
-    def __call__(self, state: MessagesState, config: RunnableConfig):
+    def __call__(self, state: MessagesState):
+        attempt = 1
+        start_time = time()
+        print("[Assistant] Starting LLM invocation...")
+        
         while True:
-            configuration = config.get("configurable", {})
-            customer_id = configuration.get("customer_id", None)
-            state = {**state, "user_info": customer_id}
+            print(f"[Assistant] Attempt {attempt} starting at {time() - start_time:.2f}s")
+            t0 = time()
             result = self.runnable.invoke(state)
+            print(f"[Assistant] Invoke took {time() - t0:.2f}s")
+            print(f"[Assistant] Result: {result}")
+            
             if not result.tool_calls and (
                 not result.content
                 or isinstance(result.content, list)
                 and not result.content[0].get("text")
             ):
+                print(f"[Assistant] Got invalid response on attempt {attempt}, retrying...")
                 messages = state["messages"] + [("user", "Respond with a real output.")]
                 state = {**state, "messages": messages}
+                attempt += 1
             else:
+                print(f"[Assistant] Got valid response after {attempt} attempts")
+                print(f"[Assistant] Total time: {time() - start_time:.2f}s")
                 break
-        print(f"Response: {result}")
+                
         return {"messages": result}
 
 EXAMPLE_EMAILS = """
@@ -165,6 +176,8 @@ def setup_assistant(tools: List[BaseTool]):
     # Setup assistant prompt
     email_assistant_prompt = ChatPromptTemplate.from_template(
         """You are an intelligent assistant that helps users manage their emails and inbox. You communicate naturally with users about their email needs and only use formal email formatting when actually drafting or sending emails.
+        
+        You are to be concise with your responses, unless specifically told to be more verbose.
 
         You have access to these tools:
         - GmailCreateDraft - Creates and saves email drafts for later review/editing before sending

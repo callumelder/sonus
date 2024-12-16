@@ -1,9 +1,10 @@
 from typing import Literal
 import json
+from time import time
 
 # Utilities
-from transcribe import MicrophoneStream, listen_print_loop
-from synthesize import text_to_speech_stream, play_audio_stream
+from transcribe import MicrophoneStream
+from synthesize import text_to_speech_stream, play_audio_stream, stop_playback
 from assistant import setup_assistant, setup_gmail_tools
 
 from google.cloud import speech
@@ -12,29 +13,76 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langchain_core.messages import ToolMessage
 
 
+def log_state(state_name: str, start_time: float = None):
+    if start_time:
+        duration = time() - start_time
+        print(f"[{state_name}] Completed in {duration:.2f}s")
+    else:
+        print(f"[{state_name}] Starting...")
+        return time()
+    
+def chatbot(assistant_instance):
+    def chatbot_node(state: MessagesState) -> MessagesState:
+        print("[Chatbot] Processing message...")
+        print(f"[Chatbot] Input state messages: {state['messages']}")
+        start = log_state("Chatbot")
+        result = assistant_instance(state)
+        print(f"[Chatbot] Output result: {result}")
+        log_state("Chatbot", start)
+        return result
+    return chatbot_node
+
 def transcribe(state: MessagesState) -> MessagesState:
+    start = log_state("Transcribe")
     with MicrophoneStream() as stream:
         audio_generator = stream.generator()
         requests = (
             speech.StreamingRecognizeRequest(audio_content=content)
             for content in audio_generator
         )
-        responses = client.streaming_recognize(streaming_config, requests)
-        transcribed_text = listen_print_loop(responses)
         
-    return {
-        "messages": [transcribed_text]
-    }
+        responses = client.streaming_recognize(streaming_config, requests)
+        
+        # Stop playback as soon as we get ANY results, even interim ones
+        first_speech_detected = False
+        transcript = ""
+        
+        for response in responses:
+            # print(f"Got response: {response}")  # Debug log
+            if response.results:
+                # If this is the first detection of speech, stop playback immediately
+                if not first_speech_detected:
+                    print("First speech detected! Stopping playback...")  # Debug log
+                    stop_playback()
+                    first_speech_detected = True
+                
+                # Wait for a final result to get the full transcript
+                result = response.results[0]
+                if result.is_final:
+                    transcript = result.alternatives[0].transcript
+                    print(f"Final transcript: {transcript}")  # Debug log
+                    break
+                # else:
+                    # print(f"Interim transcript: {result.alternatives[0].transcript}")  # Debug log
+                    
+        log_state("Transcribe", start)
+        return {
+            "messages": state["messages"] + [transcript]
+        }
 
 def synthesize(state: MessagesState) -> MessagesState:
+    start = log_state("Synthesize")
     message = state["messages"][-1]
     if message.content:
+        print("[Synthesize] Converting text to speech...")
+        t0 = time()
         audio_stream = text_to_speech_stream(message.content)
+        print(f"[Synthesize] Text-to-speech conversion took {time() - t0:.2f}s")
+        
+        print("[Synthesize] Starting playback...")
         play_audio_stream(audio_stream)
-    
-    return {
-        "messages": []
-    }
+    log_state("Synthesize", start)
+    return state
     
 def should_continue(state: MessagesState) -> Literal["chatbot", "end"]:
     """Determine if the conversation should continue or end"""
@@ -52,7 +100,6 @@ class BasicToolNode:
         self.tools_by_name = {tool.name: tool for tool in tools}
 
     def __call__(self, inputs: dict):
-        print(f"Inputs: {inputs}")
         if messages := inputs.get("messages", []):
             message = messages[-1]
             transcript = message.content[0]['text']
@@ -79,23 +126,28 @@ class BasicToolNode:
         return {"messages": outputs}
     
 def tools_condition(state: MessagesState) -> Literal["tools", "synthesize"]:
-    """Return either 'tools' or 'synthesize' as the next node"""
+    print("[Router] Checking message for tool calls...")
     latest_message = state["messages"][-1]
+    print(f"[Router] Latest message type: {type(latest_message)}")
+    print(f"[Router] Latest message content: {latest_message}")
     
-    if latest_message.tool_calls:
-        return "tools"
-    return "synthesize"
+    has_tools = hasattr(latest_message, 'tool_calls') and latest_message.tool_calls
+    print(f"[Router] Has tool calls: {has_tools}")
+    
+    result = "tools" if has_tools else "synthesize"
+    print(f"[Router] Routing to: {result}")
+    return result
 
 def setup_graph():    
     tools = setup_gmail_tools()
-    assistant  = setup_assistant(tools)
+    assistant = setup_assistant(tools)
     
     # Create and compile the graph
     graph_builder = StateGraph(MessagesState)
     tool_node = BasicToolNode(tools=tools)
     
     # Nodes
-    graph_builder.add_node("chatbot", assistant)
+    graph_builder.add_node("chatbot", chatbot(assistant))
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("transcribe", transcribe)
     graph_builder.add_node("synthesize", synthesize)
