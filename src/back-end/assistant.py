@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable
 from langgraph.graph import MessagesState
 from langchain_core.tools import BaseTool
 from langchain_google_community import GmailToolkit
@@ -13,7 +13,14 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_anthropic import ChatAnthropic
+from langchain_groq import ChatGroq
 from time import time
+from typing import List, Dict
+from dataclasses import dataclass
+from google.auth.exceptions import RefreshError
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+import os
 
 
 @dataclass
@@ -41,26 +48,72 @@ class GmailService:
             self._contacts = None
             self._initialized = True
     
+    def _refresh_token(self) -> None:
+        """Attempt to refresh the token if possible"""
+        try:
+            if self._credentials and self._credentials.expired and self._credentials.refresh_token:
+                self._credentials.refresh(Request())
+                # Save the refreshed credentials
+                with open(GmailConfig.TOKEN_FILE, 'w') as token:
+                    token.write(self._credentials.to_json())
+        except RefreshError:
+            # If refresh fails, remove the token file and reinitialize
+            if os.path.exists(GmailConfig.TOKEN_FILE):
+                os.remove(GmailConfig.TOKEN_FILE)
+            self._credentials = None
+            self._api_resource = None
+            self.initialize()
+    
     def initialize(self) -> None:
-        """Initialize Gmail service with required authentication"""
-        get_token(GmailConfig.SCOPES)
-        self._credentials = get_gmail_credentials(
-            token_file=GmailConfig.TOKEN_FILE,
-            scopes=GmailConfig.SCOPES,
-            client_secrets_file=GmailConfig.CREDENTIALS_FILE,
-        )
-        self._api_resource = build_resource_service(credentials=self._credentials)
+        """Initialize Gmail service with required authentication and handle token refresh"""
+        try:
+            # Try to use existing credentials first
+            if os.path.exists(GmailConfig.TOKEN_FILE):
+                self._credentials = Credentials.from_authorized_user_file(
+                    GmailConfig.TOKEN_FILE, 
+                    GmailConfig.SCOPES
+                )
+                
+                # Check if credentials need refresh
+                if self._credentials.expired:
+                    self._refresh_token()
+            
+            # If no valid credentials exist, get new ones
+            if not self._credentials or not self._credentials.valid:
+                from authenticate import get_token
+                get_token(GmailConfig.SCOPES)
+                self._credentials = Credentials.from_authorized_user_file(
+                    GmailConfig.TOKEN_FILE, 
+                    GmailConfig.SCOPES
+                )
+            
+            # Build API resource with valid credentials
+            from langchain_google_community.gmail.utils import build_resource_service
+            self._api_resource = build_resource_service(credentials=self._credentials)
+            
+        except Exception as e:
+            # Handle any other authentication errors
+            print(f"Authentication error: {str(e)}")
+            # Clean up invalid tokens
+            if os.path.exists(GmailConfig.TOKEN_FILE):
+                os.remove(GmailConfig.TOKEN_FILE)
+            raise
+    
+    def ensure_valid_auth(self) -> None:
+        """Ensure authentication is valid before making API calls"""
+        if not self._credentials:
+            self.initialize()
+        elif self._credentials.expired:
+            self._refresh_token()
     
     @property
     def credentials(self) -> Credentials:
-        if not self._credentials:
-            self.initialize()
+        self.ensure_valid_auth()
         return self._credentials
     
     @property
     def api_resource(self):
-        if not self._api_resource:
-            self.initialize()
+        self.ensure_valid_auth()
         return self._api_resource
     
     @property
@@ -70,7 +123,10 @@ class GmailService:
         return self._contacts
     
     def _fetch_contacts(self) -> List[Dict[str, str]]:
-        """Fetch Gmail contacts using the People API"""
+        """Fetch Gmail contacts using the People API with error handling"""
+        self.ensure_valid_auth()
+        from googleapiclient.discovery import build
+        
         service = build('people', 'v1', credentials=self.credentials)
         all_contacts = []
         page_token = None
@@ -101,6 +157,10 @@ class GmailService:
                     
             return all_contacts
             
+        except RefreshError:
+            # Handle token refresh errors
+            self._refresh_token()
+            return self._fetch_contacts()  # Retry after refresh
         except Exception as e:
             print(f"Error retrieving contacts: {str(e)}")
             return []
