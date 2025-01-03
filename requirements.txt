@@ -1,0 +1,14 @@
+python-dotenv
+langchain-openai
+langchain-anthropic
+langchain-groq
+langchain-core
+langgraph
+langchain-google-community
+google-auth-oauthlib
+google-auth
+google-api-python-client
+google-cloud-speech
+PyAudio
+pygame
+elevenlabs
