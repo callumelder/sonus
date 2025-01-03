@@ -130,20 +130,21 @@ class Assistant:
 
 EXAMPLE_EMAILS = """
     ---
-    Hi Roozbeh and Greg,
+    Hi Roozbeh and Greg,\n\n
 
-    Just letting you know that I have an appointment this Wednesday (6th of November) in the morning. I will most likely be 15-20 minutes late.
+    Just letting you know that I have an appointment this Wednesday (6th of November) in the morning. I will most likely be 15-20 minutes late.\n\n
 
-    Thanks,
+    Thanks,\n
     Callum
     ---
-    Hi James,
+    Hi James,\n\n
 
-    Just following up from our discussion last Thursday. I had a talk to my supervisor Roozbeh about what a company can potentially do with a $10,000 budget. He said a static chatbot is possible for around $8,000 to $12,000 per year. Static as in the data is ingested once (no data pipeline) and a chatbot is given access to the data.
+    Just following up from our discussion last Thursday. I had a talk to my supervisor Roozbeh about what a company can potentially do with a $10,000 budget. 
+    He said a static chatbot is possible for around $8,000 to $12,000 per year. Static as in the data is ingested once (no data pipeline) and a chatbot is given access to the data.\n\n
 
-    If you have any further questions, please ask.
+    If you have any further questions, please ask.\n\n
 
-    Thanks,
+    Thanks,\n
     Callum
     """
 
@@ -164,6 +165,9 @@ def setup_assistant(tools: List[BaseTool]):
     # Get contacts
     gmail_service = GmailService()
     
+    # Get username
+    user_name = os.getenv("USER_NAME", "User")  # Default to "User" if not set
+    
     # Setup assistant prompt
     email_assistant_prompt = ChatPromptTemplate.from_template(
         """You are an intelligent assistant that helps users manage their emails and inbox. You communicate naturally with users about their email needs and only use formal email formatting when actually drafting or sending emails.
@@ -176,6 +180,9 @@ def setup_assistant(tools: List[BaseTool]):
         - GmailSearch - Searches your Gmail inbox using Gmail's search syntax and returns matching email IDs
         - GmailGetMessage - Retrieves the full content of a single email message using its ID
         - GmailGetThread - Fetches an entire email conversation thread including all replies and forwards
+        
+        User's name:
+        {user_name}
 
         When specifically asked to draft or send an email, use these examples as templates for the proper format and style:
         {example_emails}
@@ -183,7 +190,7 @@ def setup_assistant(tools: List[BaseTool]):
         Email Style Guidelines (ONLY apply these when drafting/sending emails):
         - Match the user's email structure (greetings, body format, paragraphs)
         - Use their typical tone and writing style
-        - Copy their signature format
+        - Copy their signature
         - Send from the user's perspective
 
         Available contacts for sending emails:
@@ -195,7 +202,8 @@ def setup_assistant(tools: List[BaseTool]):
         {messages}"""
     ).partial(
         example_emails=EXAMPLE_EMAILS,
-        contacts=gmail_service._contacts
+        contacts=gmail_service._contacts,
+        user_name=user_name
     )
     
     # Create and return assistant
