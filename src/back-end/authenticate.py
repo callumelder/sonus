@@ -4,17 +4,37 @@ import os
 
 
 def get_token(SCOPES):
-    creds = None
-    # Check if the token.json file already exists
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    """Get valid credentials for Google API access."""
+    # Get path to utilities directory
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    utilities_dir = os.path.join(os.path.dirname(current_dir), 'utilities')
+    
+    # Set paths for both files in utilities
+    credentials_path = os.path.join(utilities_dir, 'credentials.json')
+    token_path = os.path.join(utilities_dir, 'token.json')
+    
+    # Always start fresh
+    if os.path.exists(token_path):
+        os.remove(token_path)
+    
+    # Check if credentials file exists
+    if not os.path.exists(credentials_path):
+        raise FileNotFoundError(f"credentials.json not found at {credentials_path}")
+    
+    # Start new authentication flow
+    
+    if os.path.exists(token_path):
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     else:
-        # Initiate OAuth 2.0 flow if token.json is not found
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        credentials_path = os.path.join(current_dir, 'credentials.json')
-        flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-        creds = flow.run_local_server(port=8080)
-        
-        # Save the access and refresh tokens in token.json for future use
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+            creds = flow.run_local_server(port=8080)
+            
+            # Save the token
+            with open(token_path, 'w') as token:
+                token.write(creds.to_json())
+                
+            return creds
+            
+        except Exception as e:
+            raise Exception(f"Error during authentication: {e}")

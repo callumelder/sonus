@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.graph import MessagesState
 from langchain_core.tools import BaseTool
 from langchain_google_community import GmailToolkit
@@ -13,13 +13,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_anthropic import ChatAnthropic
-from langchain_groq import ChatGroq
 from time import time
-from typing import List, Dict
-from dataclasses import dataclass
-from google.auth.exceptions import RefreshError
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 import os
 
 
@@ -43,91 +37,32 @@ class GmailService:
     
     def __init__(self):
         if not self._initialized:
-            self._credentials = None
             self._api_resource = None
+            self._credentials = None
             self._contacts = None
+            
+            try:
+                # Get credentials - will only trigger auth flow if needed
+                self._credentials = get_token(GmailConfig.SCOPES)
+                
+                # Build API resource with valid credentials
+                self._api_resource = build_resource_service(credentials=self._credentials)
+                
+                # Fetch contacts immediately
+                self._contacts = self._fetch_contacts()
+                    
+            except Exception as e:
+                print(f"Authentication error: {str(e)}")
+                self._credentials = None
+                self._api_resource = None
+                self._contacts = None
+                raise
+                
             self._initialized = True
     
-    def _refresh_token(self) -> None:
-        """Attempt to refresh the token if possible"""
-        try:
-            if self._credentials and self._credentials.expired and self._credentials.refresh_token:
-                self._credentials.refresh(Request())
-                # Save the refreshed credentials
-                with open(GmailConfig.TOKEN_FILE, 'w') as token:
-                    token.write(self._credentials.to_json())
-        except RefreshError:
-            # If refresh fails, remove the token file and reinitialize
-            if os.path.exists(GmailConfig.TOKEN_FILE):
-                os.remove(GmailConfig.TOKEN_FILE)
-            self._credentials = None
-            self._api_resource = None
-            self.initialize()
-    
-    def initialize(self) -> None:
-        """Initialize Gmail service with required authentication and handle token refresh"""
-        try:
-            # Try to use existing credentials first
-            if os.path.exists(GmailConfig.TOKEN_FILE):
-                self._credentials = Credentials.from_authorized_user_file(
-                    GmailConfig.TOKEN_FILE, 
-                    GmailConfig.SCOPES
-                )
-                
-                # Check if credentials need refresh
-                if self._credentials.expired:
-                    self._refresh_token()
-            
-            # If no valid credentials exist, get new ones
-            if not self._credentials or not self._credentials.valid:
-                from authenticate import get_token
-                get_token(GmailConfig.SCOPES)
-                self._credentials = Credentials.from_authorized_user_file(
-                    GmailConfig.TOKEN_FILE, 
-                    GmailConfig.SCOPES
-                )
-            
-            # Build API resource with valid credentials
-            from langchain_google_community.gmail.utils import build_resource_service
-            self._api_resource = build_resource_service(credentials=self._credentials)
-            
-        except Exception as e:
-            # Handle any other authentication errors
-            print(f"Authentication error: {str(e)}")
-            # Clean up invalid tokens
-            if os.path.exists(GmailConfig.TOKEN_FILE):
-                os.remove(GmailConfig.TOKEN_FILE)
-            raise
-    
-    def ensure_valid_auth(self) -> None:
-        """Ensure authentication is valid before making API calls"""
-        if not self._credentials:
-            self.initialize()
-        elif self._credentials.expired:
-            self._refresh_token()
-    
-    @property
-    def credentials(self) -> Credentials:
-        self.ensure_valid_auth()
-        return self._credentials
-    
-    @property
-    def api_resource(self):
-        self.ensure_valid_auth()
-        return self._api_resource
-    
-    @property
-    def contacts(self) -> List[Dict[str, str]]:
-        if self._contacts is None:
-            self._contacts = self._fetch_contacts()
-        return self._contacts
-    
     def _fetch_contacts(self) -> List[Dict[str, str]]:
-        """Fetch Gmail contacts using the People API with error handling"""
-        self.ensure_valid_auth()
-        from googleapiclient.discovery import build
-        
-        service = build('people', 'v1', credentials=self.credentials)
+        """Fetch Gmail contacts using the People API"""
+        service = build('people', 'v1', credentials=self._credentials)
         all_contacts = []
         page_token = None
         
@@ -157,10 +92,6 @@ class GmailService:
                     
             return all_contacts
             
-        except RefreshError:
-            # Handle token refresh errors
-            self._refresh_token()
-            return self._fetch_contacts()  # Retry after refresh
         except Exception as e:
             print(f"Error retrieving contacts: {str(e)}")
             return []
@@ -219,7 +150,7 @@ EXAMPLE_EMAILS = """
 def setup_gmail_tools():
     """Setup and return Gmail tools with proper authentication"""
     gmail_service = GmailService()
-    toolkit = GmailToolkit(api_resource=gmail_service.api_resource)
+    toolkit = GmailToolkit(api_resource=gmail_service._api_resource)
     return toolkit.get_tools()
 
 def setup_assistant(tools: List[BaseTool]):
@@ -264,7 +195,7 @@ def setup_assistant(tools: List[BaseTool]):
         {messages}"""
     ).partial(
         example_emails=EXAMPLE_EMAILS,
-        contacts=gmail_service.contacts
+        contacts=gmail_service._contacts
     )
     
     # Create and return assistant
