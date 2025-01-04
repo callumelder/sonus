@@ -2,15 +2,12 @@
 import queue
 import re
 import sys
-
-from google.cloud import speech
-
 import pyaudio
+
 
 # Audio recording parameters
 RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms
-
 
 class MicrophoneStream:
     """Opens a recording stream as a generator yielding the audio chunks."""

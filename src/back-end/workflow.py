@@ -2,13 +2,11 @@ from typing import Literal
 import json
 from time import time
 
-# Utilities
 from transcribe import MicrophoneStream
 from synthesize import text_to_speech_stream, play_audio_stream, stop_playback
 from assistant import setup_assistant, setup_gmail_tools
 
 from google.cloud import speech
-from langgraph.prebuilt import ToolNode
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langchain_core.messages import ToolMessage
 

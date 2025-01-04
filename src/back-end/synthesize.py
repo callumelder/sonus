@@ -2,13 +2,15 @@ from dotenv import load_dotenv
 import os
 from typing import IO
 from io import BytesIO
+import threading
+
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
-import threading
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
 import pygame
+
 
 load_dotenv()
 
@@ -16,34 +18,6 @@ ELEVENLABS_API_KEY = os.getenv("XI_API_KEY")
 client = ElevenLabs(
     api_key=ELEVENLABS_API_KEY,
 )
-
-def text_to_speech_stream(text: str) -> IO[bytes]:
-    # Perform the text-to-speech conversion
-    response = client.text_to_speech.convert(
-        voice_id="nPczCjzI2devNBz1zQrb",  # Brian pre-made voice
-        output_format="mp3_22050_32",
-        text=text,
-        model_id="eleven_turbo_v2_5",
-        voice_settings=VoiceSettings(
-            stability=0.0,
-            similarity_boost=1.0,
-            style=0.0,
-            use_speaker_boost=False,
-        ),
-    )
-
-    # Create a BytesIO object to hold the audio data in memory
-    audio_stream = BytesIO()
-
-    # Write each chunk of audio data to the stream
-    for chunk in response:
-        if chunk:
-            audio_stream.write(chunk)
-
-    # Reset stream position to the beginning
-    audio_stream.seek(0)
-
-    return audio_stream
 
 class InterruptiblePlayer:
     def __init__(self):
@@ -76,6 +50,34 @@ class InterruptiblePlayer:
 
 # Global player instance that can be accessed to stop playback
 audio_player = InterruptiblePlayer()
+
+def text_to_speech_stream(text: str) -> IO[bytes]:
+    # Perform the text-to-speech conversion
+    response = client.text_to_speech.convert(
+        voice_id="nPczCjzI2devNBz1zQrb",  # Brian pre-made voice
+        output_format="mp3_22050_32",
+        text=text,
+        model_id="eleven_turbo_v2_5",
+        voice_settings=VoiceSettings(
+            stability=0.0,
+            similarity_boost=1.0,
+            style=0.0,
+            use_speaker_boost=False,
+        ),
+    )
+
+    # Create a BytesIO object to hold the audio data in memory
+    audio_stream = BytesIO()
+
+    # Write each chunk of audio data to the stream
+    for chunk in response:
+        if chunk:
+            audio_stream.write(chunk)
+
+    # Reset stream position to the beginning
+    audio_stream.seek(0)
+
+    return audio_stream
 
 def play_audio_stream(audio_stream: IO[bytes]):
     """Play audio in a separate thread so it can be interrupted"""
