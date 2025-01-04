@@ -20,7 +20,7 @@ client = ElevenLabs(
 def text_to_speech_stream(text: str) -> IO[bytes]:
     # Perform the text-to-speech conversion
     response = client.text_to_speech.convert(
-        voice_id="nPczCjzI2devNBz1zQrb",  # Adam pre-made voice
+        voice_id="nPczCjzI2devNBz1zQrb",  # Brian pre-made voice
         output_format="mp3_22050_32",
         text=text,
         model_id="eleven_turbo_v2_5",
@@ -28,7 +28,7 @@ def text_to_speech_stream(text: str) -> IO[bytes]:
             stability=0.0,
             similarity_boost=1.0,
             style=0.0,
-            use_speaker_boost=True,
+            use_speaker_boost=False,
         ),
     )
 
