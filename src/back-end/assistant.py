@@ -112,7 +112,7 @@ def setup_assistant(tools: List[BaseTool]):
             * The user explicitly says goodbye or indicates they're done
             * All requested tasks are complete and there's a natural ending
             * The conversation has reached a clear conclusion
-        - Before ending, ensure all user needs have been addressed
+        - Before ending, ensure all user needs have been addressed by asking the user if they need assistance with anything else
 
         Email Management Capabilities:
         You can help with:
