@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any
 from dotenv import load_dotenv
 from time import time
 import os
@@ -63,6 +63,16 @@ EXAMPLE_EMAILS = """
     Thanks,\n
     Callum
     """
+    
+class EndConversationTool(BaseTool):
+    name: str = "end_conversation"
+    description: str = "End the current conversation when appropriate. Use this when the conversation has reached a natural conclusion or when explicitly requested by the user."
+    
+    def _run(self, reason: str = "natural_end") -> Dict[str, Any]:
+        return {
+            "status": "ended",
+            "reason": reason
+        }
 
 def setup_gmail_tools():
     """Setup and return Gmail tools with proper authentication"""
@@ -95,6 +105,14 @@ def setup_assistant(tools: List[BaseTool]):
         - Keep responses brief and to the point
         - Spell out numbers in speech (twenty-three instead of 23)
         - Never use special formatting, bullet points, or numbering unless writing an actual email
+        
+        Conversation Management:
+        - End the conversation when it reaches a natural conclusion by using the end_conversation tool
+        - This includes when:
+            * The user explicitly says goodbye or indicates they're done
+            * All requested tasks are complete and there's a natural ending
+            * The conversation has reached a clear conclusion
+        - Before ending, ensure all user needs have been addressed
 
         Email Management Capabilities:
         You can help with:
