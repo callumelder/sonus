@@ -3,7 +3,7 @@ import json
 from time import time
 
 from transcribe import MicrophoneStream
-from synthesize import text_to_speech_stream, play_audio_stream, stop_playback
+from synthesize import text_to_speech_stream, play_audio_stream
 from assistant import setup_assistant, setup_gmail_tools
 
 from google.cloud import speech
@@ -41,27 +41,15 @@ def transcribe(state: MessagesState) -> MessagesState:
         
         responses = client.streaming_recognize(streaming_config, requests)
         
-        # Stop playback as soon as we get ANY results, even interim ones
-        first_speech_detected = False
         transcript = ""
-        
         for response in responses:
-            # print(f"Got response: {response}")  # Debug log
             if response.results:
-                # If this is the first detection of speech, stop playback immediately
-                if not first_speech_detected:
-                    print("First speech detected! Stopping playback...")  # Debug log
-                    stop_playback()
-                    first_speech_detected = True
-                
                 # Wait for a final result to get the full transcript
                 result = response.results[0]
                 if result.is_final:
                     transcript = result.alternatives[0].transcript
-                    print(f"Final transcript: {transcript}")  # Debug log
+                    print(f"Final transcript: {transcript}")
                     break
-                # else:
-                    # print(f"Interim transcript: {result.alternatives[0].transcript}")  # Debug log
                     
         log_state("Transcribe", start)
         return {

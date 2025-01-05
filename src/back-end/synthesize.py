@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 import os
 from typing import IO
 from io import BytesIO
-import threading
 
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
@@ -18,38 +17,6 @@ ELEVENLABS_API_KEY = os.getenv("XI_API_KEY")
 client = ElevenLabs(
     api_key=ELEVENLABS_API_KEY,
 )
-
-class InterruptiblePlayer:
-    def __init__(self):
-        self.is_playing = False
-        self.should_stop = False
-    
-    def stop(self):
-        """Stop the current playback"""
-        self.should_stop = True
-        if self.is_playing:
-            pygame.mixer.music.stop()
-    
-    def play_audio_stream(self, audio_stream: IO[bytes]):
-        try:
-            pygame.mixer.init(frequency=22050)
-            
-            self.is_playing = True
-            self.should_stop = False
-            
-            pygame.mixer.music.load(audio_stream)
-            pygame.mixer.music.play()
-            
-            while pygame.mixer.music.get_busy() and not self.should_stop:
-                pygame.time.Clock().tick(10)
-                
-        finally:
-            self.is_playing = False
-            pygame.mixer.music.stop()
-            pygame.mixer.quit()
-
-# Global player instance that can be accessed to stop playback
-audio_player = InterruptiblePlayer()
 
 def text_to_speech_stream(text: str) -> IO[bytes]:
     # Perform the text-to-speech conversion
@@ -76,18 +43,17 @@ def text_to_speech_stream(text: str) -> IO[bytes]:
 
     # Reset stream position to the beginning
     audio_stream.seek(0)
-
     return audio_stream
 
 def play_audio_stream(audio_stream: IO[bytes]):
-    """Play audio in a separate thread so it can be interrupted"""
-    def play():
-        audio_player.play_audio_stream(audio_stream)
+    """Play audio directly without interrupt handling"""
+    pygame.mixer.init(frequency=22050)
+    pygame.mixer.music.load(audio_stream)
+    pygame.mixer.music.play()
     
-    playback_thread = threading.Thread(target=play)
-    playback_thread.daemon = True  # Thread will be killed when main program exits
-    playback_thread.start()
-
-def stop_playback():
-    """Stop any currently playing audio"""
-    audio_player.stop()
+    # Wait for playback to finish
+    while pygame.mixer.music.get_busy():
+        pygame.time.Clock().tick(10)
+    
+    pygame.mixer.music.stop()
+    pygame.mixer.quit()
