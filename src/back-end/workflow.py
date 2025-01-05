@@ -187,6 +187,5 @@ if __name__ == "__main__":
     
     # Setup and run the graph
     graph = setup_graph()
-    print("Ready")
     state = MessagesState(messages=[])
     state = graph.invoke(state)
