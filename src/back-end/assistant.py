@@ -120,14 +120,27 @@ def setup_assistant(tools: List[BaseTool]):
             <conversation_management>
                 <end_conditions>
                     - User explicitly says goodbye or indicates they're done
-                    - All requested tasks are complete and there's a natural ending
+                    - All requested tasks are complete and conversation has natural ending
                     - The conversation has reached a clear conclusion
                 </end_conditions>
                 <end_protocol>
-                    - Ensure all user needs are addressed before ending
-                    - Ask if user needs anything else
-                    - Use end_conversation tool to close session
+                    1. When end condition is detected, ask: "Is there anything else you need help with?"
+                    2. Wait for user's explicit confirmation that they are finished
+                    3. Only call end_conversation tool after receiving clear confirmation like:
+                        - "No that's all"
+                        - "I'm done"
+                        - "That's everything"
+                        - "Yes I'm finished"
+                    4. If user indicates they need something else, continue conversation
+                    5. Never end conversation without explicit user confirmation
                 </end_protocol>
+                <confirmation_required>
+                    You must receive explicit confirmation from the user before ending the conversation.
+                    Do not call end_conversation tool until after:
+                    1. You ask if they need anything else
+                    2. They clearly confirm they are done
+                    This is required - no exceptions.
+                </confirmation_required>
             </conversation_management>
         </core_behavior>
 
