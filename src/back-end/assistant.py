@@ -2,6 +2,8 @@ from typing import List, Dict, Any
 from dotenv import load_dotenv
 from time import time
 import os
+from datetime import datetime
+import pytz
 
 from gmail import GmailService
 
@@ -63,6 +65,10 @@ EXAMPLE_EMAILS = """
     Thanks,\n
     Callum
     """
+    
+def get_current_time():
+    aest = pytz.timezone('Australia/Brisbane')
+    return datetime.now(aest).strftime("%m/%d/%y %H:%M")
     
 class EndConversationTool(BaseTool):
     name: str = "end_conversation"
@@ -158,6 +164,10 @@ def setup_assistant(tools: List[BaseTool]):
         <conversation_context>
             Remember: Stay conversational unless actively writing an email. Speak naturally as if you're having a face-to-face conversation.
         </conversation_context>
+        
+        <current_time>
+            {time}
+        </current_time>
 
         <messages>
             {messages}
@@ -165,7 +175,8 @@ def setup_assistant(tools: List[BaseTool]):
     ).partial(
         example_emails=EXAMPLE_EMAILS,
         contacts=gmail_service._contacts,
-        user_name=user_name
+        user_name=user_name,
+        time=get_current_time()
     )
     
     # Create and return assistant
