@@ -160,11 +160,14 @@ def setup_assistant(tools: List[BaseTool]):
             </examples>
             
             <writing_guidelines>
-                Mirror {user_name}'s style in:
-                - Email openings
-                - Writing tone
-                - Paragraph structure
-                - Signature format
+                When writing emails:
+                - Mirror {user_name}'s style in openings
+                - Match their writing tone
+                - Follow their paragraph structure
+                - Use their signature format
+                - Preserve line breaks between paragraphs
+                - Include proper spacing after greetings and before signatures
+                - Format with double newlines between sections
             </writing_guidelines>
         </email_style>
 
