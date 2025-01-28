@@ -7,11 +7,34 @@ const VoiceInterface = () => {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [metering, setMetering] = useState<number>(0);
+  const [wsConnected, setWsConnected] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const meterInterval = useRef<NodeJS.Timeout | null>(null);
   const pulseAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const ws = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    // Initialize WebSocket connection
+    ws.current = new WebSocket('ws://192.168.1.103:8000/ws');  // Replace with your IP
+
+    ws.current.onopen = () => {
+      console.log('WebSocket Connected');
+      setWsConnected(true);
+    };
+
+    ws.current.onclose = () => {
+      console.log('WebSocket Disconnected');
+      setWsConnected(false);
+    };
+
+    ws.current.onerror = (error) => {
+      console.error('WebSocket Error:', error);
+      if (ws.current) {
+        console.log('Current WebSocket URL:', ws.current.url);
+      }
+      setWsConnected(false);
+    };
+
     // Request permissions and start recording when component mounts
     const initializeAudio = async () => {
       const { status } = await Audio.requestPermissionsAsync();
@@ -38,6 +61,9 @@ const VoiceInterface = () => {
       }
       if (pulseAnimation.current) {
         pulseAnimation.current.stop();
+      }
+      if (ws.current) {
+        ws.current.close();
       }
     };
   }, []);
@@ -81,36 +107,59 @@ const VoiceInterface = () => {
           clearInterval(meterInterval.current);
         }
       }
-
+  
       // Configure audio mode for recording
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
-
+  
       console.log('Starting recording...');
-      const { recording: newRecording } = await Audio.Recording.createAsync(
+      const { recording: recorderInstance } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY,
         (status) => {
           if (status.metering !== undefined) {
             setMetering(status.metering);
+            
+            // Send metering data to server for testing
+            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+              ws.current.send(JSON.stringify({
+                type: 'audio_metering',
+                value: status.metering
+              }));
+            }
           }
         },
         100 // Update interval in milliseconds
       );
       
-      setRecording(newRecording);
-
+      setRecording(recorderInstance);
+  
       // Start metering updates
       meterInterval.current = setInterval(async () => {
-        if (newRecording) {
-          const status = await newRecording.getStatusAsync();
+        if (recorderInstance) {
+          const status = await recorderInstance.getStatusAsync();
           if (status.metering !== undefined) {
             setMetering(status.metering);
+            
+            // Send audio data if WebSocket is connected
+            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+              const uri = await recorderInstance.getURI();
+              if (uri) {
+                // Log that we're sending data
+                console.log('Sending audio data to server...');
+                
+                ws.current.send(JSON.stringify({
+                  type: 'audio_data',
+                  uri: uri,
+                  metering: status.metering
+                }));
+              }
+            }
           }
         }
       }, 100);
-
+  
     } catch (err) {
       console.error('Failed to start recording', err);
     }
@@ -162,6 +211,9 @@ const VoiceInterface = () => {
         />
         <Text style={styles.meterText}>
           Level: {normalizedMeter.toFixed(2)}
+        </Text>
+        <Text style={[styles.meterText, { color: wsConnected ? '#4CAF50' : '#F44336' }]}>
+          WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
         </Text>
       </View>
 
