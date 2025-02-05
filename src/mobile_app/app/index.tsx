@@ -12,6 +12,7 @@ const VoiceInterface = () => {
   const meterInterval = useRef<NodeJS.Timeout | null>(null);
   const pulseAnimation = useRef<Animated.CompositeAnimation | null>(null);
   const ws = useRef<WebSocket | null>(null);
+  const lastProcessedSize = useRef(0);
 
   useEffect(() => {
     // Initialize WebSocket connection
@@ -33,6 +34,15 @@ const VoiceInterface = () => {
         console.log('Current WebSocket URL:', ws.current.url);
       }
       setWsConnected(false);
+    };
+
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'interim_transcript') {
+        console.log('[WebSocket] Interim transcript:', data.text);
+      } else if (data.type === 'final_transcript') {
+        console.log('[WebSocket] Final transcript:', data.text);
+      }
     };
 
     // Request permissions and start recording when component mounts
@@ -100,13 +110,16 @@ const VoiceInterface = () => {
   const startRecording = async () => {
     try {
       if (recording) {
-        console.log('Already recording, stopping first...');
+        console.log('[Recording] Stopping existing recording...');
         await recording.stopAndUnloadAsync();
         setRecording(null);
         if (meterInterval.current) {
           clearInterval(meterInterval.current);
         }
       }
+
+      // Reset the processed size counter
+      lastProcessedSize.current = 0;
   
       // Configure audio mode for recording
       await Audio.setAudioModeAsync({
@@ -114,54 +127,71 @@ const VoiceInterface = () => {
         playsInSilentModeIOS: true,
       });
   
-      console.log('Starting recording...');
+      console.log('[Recording] Starting new recording...');
       const { recording: recorderInstance } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        {
+          android: {
+            extension: '.wav',
+            outputFormat: Audio.AndroidOutputFormat.DEFAULT,
+            audioEncoder: Audio.AndroidAudioEncoder.DEFAULT,
+            sampleRate: 16000,
+            numberOfChannels: 1,
+            bitRate: 16000 * 16,
+          },
+          ios: {
+            extension: '.wav',
+            outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+            audioQuality: Audio.IOSAudioQuality.HIGH,
+            sampleRate: 16000,
+            numberOfChannels: 1,
+            bitRate: 16000 * 16,
+          },
+          web: {
+            mimeType: 'audio/wav',
+            bitsPerSecond: 16000 * 16,
+          },
+        },
         (status) => {
           if (status.metering !== undefined) {
             setMetering(status.metering);
-            
-            // Send metering data to server for testing
-            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-              ws.current.send(JSON.stringify({
-                type: 'audio_metering',
-                value: status.metering
-              }));
-            }
           }
         },
-        100 // Update interval in milliseconds
+        100
       );
       
       setRecording(recorderInstance);
+      console.log('[Recording] Recording instance created');
   
-      // Start metering updates
+      // Start sending audio data in intervals
       meterInterval.current = setInterval(async () => {
-        if (recorderInstance) {
-          const status = await recorderInstance.getStatusAsync();
-          if (status.metering !== undefined) {
-            setMetering(status.metering);
-            
-            // Send audio data if WebSocket is connected
-            if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-              const uri = await recorderInstance.getURI();
-              if (uri) {
-                // Log that we're sending data
-                console.log('Sending audio data to server...');
+        if (recorderInstance && ws.current?.readyState === WebSocket.OPEN) {
+          try {
+            const uri = await recorderInstance.getURI();
+            if (uri) {
+              const response = await fetch(uri);
+              const fullAudioData = await response.arrayBuffer();
+              
+              // Only send the new portion of the audio
+              if (fullAudioData.byteLength > lastProcessedSize.current) {
+                const newAudioData = fullAudioData.slice(lastProcessedSize.current);
+                console.log(`[WebSocket] Sending new audio chunk: ${newAudioData.byteLength} bytes`);
                 
                 ws.current.send(JSON.stringify({
                   type: 'audio_data',
-                  uri: uri,
-                  metering: status.metering
+                  chunk: Array.from(new Uint8Array(newAudioData))
                 }));
+
+                lastProcessedSize.current = fullAudioData.byteLength;
               }
             }
+          } catch (error) {
+            console.error('[WebSocket] Error sending audio:', error);
           }
         }
       }, 100);
   
     } catch (err) {
-      console.error('Failed to start recording', err);
+      console.error('[Recording] Failed to start:', err);
     }
   };
 
@@ -176,8 +206,9 @@ const VoiceInterface = () => {
       }
       
       await recording.stopAndUnloadAsync();
-      setMetering(-160); // Reset metering to minimum when stopped
+      setMetering(-160);
       setRecording(null);
+      lastProcessedSize.current = 0;  // Reset the counter
     } catch (err) {
       console.error('Failed to stop recording', err);
     }
