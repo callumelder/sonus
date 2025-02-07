@@ -3,8 +3,8 @@ import json
 from time import time
 
 from transcribe import MicrophoneStream
-from synthesize import text_to_speech_stream, play_audio_stream, stop_playback
-from assistant import setup_assistant, setup_gmail_tools
+from synthesize import text_to_speech_stream, play_audio_stream
+from assistant import setup_assistant, setup_gmail_tools, EndConversationTool
 
 from google.cloud import speech
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -41,27 +41,15 @@ def transcribe(state: MessagesState) -> MessagesState:
         
         responses = client.streaming_recognize(streaming_config, requests)
         
-        # Stop playback as soon as we get ANY results, even interim ones
-        first_speech_detected = False
         transcript = ""
-        
         for response in responses:
-            # print(f"Got response: {response}")  # Debug log
             if response.results:
-                # If this is the first detection of speech, stop playback immediately
-                if not first_speech_detected:
-                    print("First speech detected! Stopping playback...")  # Debug log
-                    stop_playback()
-                    first_speech_detected = True
-                
                 # Wait for a final result to get the full transcript
                 result = response.results[0]
                 if result.is_final:
                     transcript = result.alternatives[0].transcript
-                    print(f"Final transcript: {transcript}")  # Debug log
+                    print(f"Final transcript: {transcript}")
                     break
-                # else:
-                    # print(f"Interim transcript: {result.alternatives[0].transcript}")  # Debug log
                     
         log_state("Transcribe", start)
         return {
@@ -81,15 +69,6 @@ def synthesize(state: MessagesState) -> MessagesState:
         play_audio_stream(audio_stream)
     log_state("Synthesize", start)
     return state
-    
-def should_continue(state: MessagesState) -> Literal["chatbot", "end"]:
-    """Determine if the conversation should continue or end"""
-    latest_message = state["messages"][-1]
-    
-    if "goodbye" in latest_message:
-        print("ENDING CONVERSATION")
-        return "end"
-    return "chatbot"
 
 class BasicToolNode:
     """A node that runs the tools requested in the last AIMessage."""
@@ -123,22 +102,52 @@ class BasicToolNode:
             )
         return {"messages": outputs}
     
-def tools_condition(state: MessagesState) -> Literal["tools", "synthesize"]:
+def tools_condition(state: MessagesState) -> Literal["tools", "synthesize", "final_output"]:
+    """Route to tools, synthesize, or final output based on message content"""
     print("[Router] Checking message for tool calls...")
     latest_message = state["messages"][-1]
     print(f"[Router] Latest message type: {type(latest_message)}")
     print(f"[Router] Latest message content: {latest_message}")
     
-    has_tools = hasattr(latest_message, 'tool_calls') and latest_message.tool_calls
-    print(f"[Router] Has tool calls: {has_tools}")
+    if hasattr(latest_message, 'tool_calls') and latest_message.tool_calls:
+        # Check if end_conversation tool was called
+        for tool_call in latest_message.tool_calls:
+            if tool_call["name"] == "end_conversation":
+                print("[Router] End conversation tool called, routing to final output")
+                return "final_output"
+        print("[Router] Tool calls present, routing to tools")
+        return "tools"
     
-    result = "tools" if has_tools else "synthesize"
-    print(f"[Router] Routing to: {result}")
-    return result
+    print("[Router] No tool calls, routing to synthesize")
+    return "synthesize"
 
-def setup_graph():    
+def final_output(state: MessagesState) -> MessagesState:
+    """Handle final message synthesis before ending conversation"""
+    print("[Final Output] Processing final message...")
+    start = log_state("Final Output")
+    
+    message = state["messages"][-1]
+    if message.content and isinstance(message.content, list) and message.content[0].get('text'):
+        text = message.content[0]['text']
+        print(f"Final text to speak: {text}")
+        
+        print("[Final Output] Converting final text to speech...")
+        t0 = time()
+        audio_stream = text_to_speech_stream(text)
+        print(f"[Final Output] Text-to-speech conversion took {time() - t0:.2f}s")
+        
+        print("[Final Output] Starting final playback...")
+        play_audio_stream(audio_stream)
+        
+    log_state("Final Output", start)
+    return state
+
+def setup_graph():
+    # Setup tools
     tools = setup_gmail_tools()
-    assistant = setup_assistant(tools)
+    conversation_tool = EndConversationTool()
+    all_tools = tools + [conversation_tool]
+    assistant = setup_assistant(all_tools)
     
     # Create and compile the graph
     graph_builder = StateGraph(MessagesState)
@@ -149,25 +158,23 @@ def setup_graph():
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("transcribe", transcribe)
     graph_builder.add_node("synthesize", synthesize)
+    graph_builder.add_node("final_output", final_output)
     
     # Edges
     graph_builder.add_edge(START, "transcribe")
     graph_builder.add_edge("transcribe", "chatbot")
     graph_builder.add_edge("tools", "chatbot")
     graph_builder.add_edge("synthesize", "transcribe")
+    graph_builder.add_edge("final_output", END)
     
     # Conditional Edges
     graph_builder.add_conditional_edges(
         "chatbot",
-        tools_condition
-    )
-    
-    graph_builder.add_conditional_edges(
-        "transcribe",
-        should_continue,
+        tools_condition,
         {
-            "chatbot": "chatbot",
-            "end": END
+            "tools": "tools",
+            "synthesize": "synthesize",
+            "final_output": "final_output"
         }
     )
     
