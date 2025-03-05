@@ -1,8 +1,9 @@
 from typing import List, Dict
 
 from langchain_google_community.gmail.utils import build_resource_service
-from authenticate import get_token
 from googleapiclient.discovery import build
+
+from .authenticate import get_token
 
 
 class GmailConfig:

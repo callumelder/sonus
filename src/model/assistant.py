@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 import pytz
 
-from gmail import GmailService
+from .gmail import GmailService
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
