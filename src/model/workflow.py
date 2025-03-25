@@ -2,9 +2,9 @@ from typing import Literal
 import json
 from time import time
 
-from transcribe import MicrophoneStream
-from synthesize import text_to_speech_stream, play_audio_stream
-from assistant import setup_assistant, setup_gmail_tools, EndConversationTool
+# from transcribe import MicrophoneStream
+from .synthesize import text_to_speech_stream, play_audio_stream
+from .assistant import setup_assistant, setup_gmail_tools, EndConversationTool
 
 from google.cloud import speech
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -30,31 +30,57 @@ def chatbot(assistant_instance):
         return result
     return chatbot_node
 
-def transcribe(state: MessagesState) -> MessagesState:
-    start = log_state("Transcribe")
-    with MicrophoneStream() as stream:
-        audio_generator = stream.generator()
-        requests = (
-            speech.StreamingRecognizeRequest(audio_content=content)
-            for content in audio_generator
-        )
+def create_websocket_aware_transcribe(websocket):
+    """
+    Creates a transcribe function that uses a specific WebSocket connection.
+    
+    Args:
+        websocket (WebSocket): The WebSocket connection to use for audio streaming
         
-        responses = client.streaming_recognize(streaming_config, requests)
+    Returns:
+        function: A transcribe function that uses the provided WebSocket
+    """
+    async def websocket_transcribe(state: MessagesState) -> MessagesState:
+        """
+        Transcribe node that requests audio through the WebSocket connection.
         
-        transcript = ""
-        for response in responses:
-            if response.results:
-                # Wait for a final result to get the full transcript
-                result = response.results[0]
-                if result.is_final:
-                    transcript = result.alternatives[0].transcript
-                    print(f"Final transcript: {transcript}")
-                    break
-                    
+        Args:
+            state (MessagesState): The current state of the conversation
+            
+        Returns:
+            MessagesState: Updated state with transcribed message
+        """
+        start = log_state("Transcribe")
+        
+        # Import the handler from main
+        from main import handle_workflow_message
+        
+        # No need to create a new queue each time. Instead, ensure the websocket
+        # already has a transcript_queue attribute (created at connection time)
+        if not hasattr(websocket, 'transcript_queue'):
+            from asyncio import Queue
+            websocket.transcript_queue = Queue()
+            # logger.info("Created new transcript queue for websocket")
+        
+        # Signal that we're starting transcription
+        await handle_workflow_message(websocket, "start_listening")
+        
+        # Wait for transcription to complete (filled by SpeechProcessor)
+        # logger.info("Waiting for transcription from speech processor...")
+        transcript = await websocket.transcript_queue.get()
+        # logger.info(f"Received transcript: {transcript}")
+        
+        # Signal that we're done with transcription
+        await handle_workflow_message(websocket, "stop_listening")
+        
         log_state("Transcribe", start)
+        
+        # Return the transcript as a new message
         return {
             "messages": state["messages"] + [transcript]
         }
+    
+    return websocket_transcribe
 
 def synthesize(state: MessagesState) -> MessagesState:
     start = log_state("Synthesize")
@@ -142,7 +168,16 @@ def final_output(state: MessagesState) -> MessagesState:
     log_state("Final Output", start)
     return state
 
-def setup_graph():
+def setup_graph_with_websocket(websocket):
+    """
+    Creates a workflow graph with nodes that can communicate through a WebSocket.
+    
+    Args:
+        websocket (WebSocket): The WebSocket connection to use
+        
+    Returns:
+        StateGraph: A compiled workflow graph
+    """
     # Setup tools
     tools = setup_gmail_tools()
     conversation_tool = EndConversationTool()
@@ -153,10 +188,13 @@ def setup_graph():
     graph_builder = StateGraph(MessagesState)
     tool_node = BasicToolNode(tools=tools)
     
+    # Create WebSocket-aware transcribe function
+    websocket_transcribe = create_websocket_aware_transcribe(websocket)
+    
     # Nodes
     graph_builder.add_node("chatbot", chatbot(assistant))
     graph_builder.add_node("tools", tool_node)
-    graph_builder.add_node("transcribe", transcribe)
+    graph_builder.add_node("transcribe", websocket_transcribe)
     graph_builder.add_node("synthesize", synthesize)
     graph_builder.add_node("final_output", final_output)
     
@@ -193,6 +231,6 @@ if __name__ == "__main__":
     )
     
     # Setup and run the graph
-    graph = setup_graph()
+    graph = setup_graph_with_websocket("ws://192.168.1.103:8000/ws")
     state = MessagesState(messages=[])
     state = graph.invoke(state)

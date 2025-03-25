@@ -13,35 +13,59 @@ const VoiceInterface = () => {
   const pulseAnimation = useRef<Animated.CompositeAnimation | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const lastProcessedSize = useRef(0);
+  const [isListening, setIsListening] = useState(false);
 
   useEffect(() => {
     // Initialize WebSocket connection
     ws.current = new WebSocket('ws://192.168.1.103:8000/ws');  // Replace with your IP
-
+  
     ws.current.onopen = () => {
       console.log('WebSocket Connected');
       setWsConnected(true);
+      
+      // Signal that we're ready to start a conversation
+      if (ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(JSON.stringify({
+          type: "start_conversation"
+        }));
+      }
     };
-
+  
     ws.current.onclose = () => {
       console.log('WebSocket Disconnected');
       setWsConnected(false);
+      setIsListening(false);
     };
-
+  
     ws.current.onerror = (error) => {
       console.error('WebSocket Error:', error);
-      if (ws.current) {
-        console.log('Current WebSocket URL:', ws.current.url);
-      }
       setWsConnected(false);
     };
-
+  
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'interim_transcript') {
-        console.log('[WebSocket] Interim transcript:', data.text);
-      } else if (data.type === 'final_transcript') {
-        console.log('[WebSocket] Final transcript:', data.text);
+      
+      // Handle different message types
+      switch (data.type) {
+        case "start_listening":
+          console.log('[WebSocket] Received command to start listening');
+          startRecording();
+          break;
+          
+        case "stop_listening":
+          console.log('[WebSocket] Received command to stop listening');
+          stopRecording();
+          break;
+          
+        case "interim_transcript":
+          console.log('[WebSocket] Interim transcript:', data.text);
+          // Update UI with interim transcript if desired
+          break;
+          
+        case "final_transcript":
+          console.log('[WebSocket] Final transcript:', data.text);
+          // Update UI with final transcript if desired
+          break;
       }
     };
 
@@ -52,8 +76,7 @@ const VoiceInterface = () => {
         console.error('Permission to access microphone was denied');
         return;
       }
-
-      startRecording();
+      console.log('Microphone permissions granted');
     };
 
     initializeAudio();
@@ -109,6 +132,15 @@ const VoiceInterface = () => {
 
   const startRecording = async () => {
     try {
+      // If already listening/recording, don't try to start again
+      if (isListening) {
+        console.log('[Recording] Recording already in progress, ignoring start request');
+        return;
+      }
+      
+      // Set listening state right away to prevent concurrent attempts
+      setIsListening(true);
+  
       if (recording) {
         console.log('[Recording] Stopping existing recording...');
         await recording.stopAndUnloadAsync();
@@ -116,6 +148,9 @@ const VoiceInterface = () => {
         if (meterInterval.current) {
           clearInterval(meterInterval.current);
         }
+        
+        // Small delay to ensure clean state
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
       // Reset the processed size counter
@@ -192,13 +227,15 @@ const VoiceInterface = () => {
   
     } catch (err) {
       console.error('[Recording] Failed to start:', err);
+      // Reset the listening state if we failed to start
+      setIsListening(false);
     }
   };
 
   const stopRecording = async () => {
     try {
       if (!recording) return;
-
+  
       console.log('Stopping recording...');
       if (meterInterval.current) {
         clearInterval(meterInterval.current);
@@ -211,6 +248,8 @@ const VoiceInterface = () => {
       lastProcessedSize.current = 0;  // Reset the counter
     } catch (err) {
       console.error('Failed to stop recording', err);
+    } finally {
+      setIsListening(false);
     }
   };
 
