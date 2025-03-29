@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import speech
 from langgraph.graph import MessagesState
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
