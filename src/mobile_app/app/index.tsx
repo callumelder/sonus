@@ -14,6 +14,7 @@ const VoiceInterface = () => {
   const ws = useRef<WebSocket | null>(null);
   const lastProcessedSize = useRef(0);
   const [isListening, setIsListening] = useState(false);
+  const recordingRef = useRef<Audio.Recording | null>(null);
 
   useEffect(() => {
     // Initialize WebSocket connection
@@ -86,9 +87,7 @@ const VoiceInterface = () => {
 
     // Cleanup when component unmounts
     return () => {
-      if (recording) {
-        recording.stopAndUnloadAsync();
-      }
+      stopRecording(); // Make sure to stop recording on unmount
       if (meterInterval.current) {
         clearInterval(meterInterval.current);
       }
@@ -100,6 +99,11 @@ const VoiceInterface = () => {
       }
     };
   }, []);
+
+  // Update recordingRef whenever recording state changes
+  useEffect(() => {
+    recordingRef.current = recording;
+  }, [recording]);
 
   const startPulseAnimation = () => {
     // Stop existing animation if any
@@ -141,17 +145,11 @@ const VoiceInterface = () => {
       // Set listening state right away to prevent concurrent attempts
       setIsListening(true);
   
-      if (recording) {
-        console.log('[Recording] Stopping existing recording...');
-        await recording.stopAndUnloadAsync();
-        setRecording(null);
-        if (meterInterval.current) {
-          clearInterval(meterInterval.current);
-        }
-        
-        // Small delay to ensure clean state
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
+      // Make sure any existing recording is stopped first
+      await stopRecording(false); // Pass false to not reset isListening
+      
+      // Small delay to ensure clean state
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       // Reset the processed size counter
       lastProcessedSize.current = 0;
@@ -199,9 +197,10 @@ const VoiceInterface = () => {
   
       // Start sending audio data in intervals
       meterInterval.current = setInterval(async () => {
-        if (recorderInstance && ws.current?.readyState === WebSocket.OPEN) {
+        // Use recordingRef to access the current recording value
+        if (recordingRef.current && ws.current?.readyState === WebSocket.OPEN) {
           try {
-            const uri = await recorderInstance.getURI();
+            const uri = await recordingRef.current.getURI();
             if (uri) {
               const response = await fetch(uri);
               const fullAudioData = await response.arrayBuffer();
@@ -232,24 +231,31 @@ const VoiceInterface = () => {
     }
   };
 
-  const stopRecording = async () => {
+  const stopRecording = async (resetListening = true) => {
     try {
-      if (!recording) return;
-  
-      console.log('Stopping recording...');
+      console.log('stopRecording called, recording ref:', recordingRef.current);
+      
+      // Clear interval first to stop sending audio data
       if (meterInterval.current) {
         clearInterval(meterInterval.current);
         meterInterval.current = null;
       }
       
-      await recording.stopAndUnloadAsync();
-      setMetering(-160);
-      setRecording(null);
-      lastProcessedSize.current = 0;  // Reset the counter
+      // Check recordingRef instead of recording state
+      if (recordingRef.current) {
+        console.log('Stopping recording instance...');
+        await recordingRef.current.stopAndUnloadAsync();
+        setMetering(-160);
+        setRecording(null);
+        lastProcessedSize.current = 0;  // Reset the counter
+      }
     } catch (err) {
       console.error('Failed to stop recording', err);
     } finally {
-      setIsListening(false);
+      // Only reset isListening if specified
+      if (resetListening) {
+        setIsListening(false);
+      }
     }
   };
 
@@ -284,6 +290,9 @@ const VoiceInterface = () => {
         </Text>
         <Text style={[styles.meterText, { color: wsConnected ? '#4CAF50' : '#F44336' }]}>
           WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
+        </Text>
+        <Text style={[styles.meterText, { color: isListening ? '#4CAF50' : '#F44336' }]}>
+          Listening: {isListening ? 'Active' : 'Inactive'}
         </Text>
       </View>
 
