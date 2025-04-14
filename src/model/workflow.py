@@ -231,6 +231,6 @@ if __name__ == "__main__":
     )
     
     # Setup and run the graph
-    graph = setup_graph_with_websocket("ws://192.168.1.103:8000/ws")
+    graph = setup_graph_with_websocket("ws://192.168.1.104:8000/ws")
     state = MessagesState(messages=[])
     state = graph.invoke(state)
