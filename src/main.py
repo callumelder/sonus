@@ -226,7 +226,18 @@ async def handle_workflow_message(websocket, message_type, data=None):
     if data:
         message.update(data)
     
-    await websocket.send_json(message)
+    try:
+        # Handle large audio data efficiently
+        if message_type == "audio_response" and "data" in message:
+            # Log the size but not the full data
+            data_size = len(message["data"]) if isinstance(message["data"], (str, bytes, list)) else "unknown"
+            logger.info(f"Sending audio data of size: {data_size}")
+        else:
+            logger.info(f"Sending message: {message_type}")
+            
+        await websocket.send_json(message)
+    except Exception as e:
+        logger.error(f"Error sending message via WebSocket: {str(e)}")
 
 # Function to request audio streaming from the client
 async def request_audio_from_client(websocket):

@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 import os
-from typing import IO
+from typing import IO, Union
 from io import BytesIO
 
 from elevenlabs import VoiceSettings
@@ -18,7 +18,16 @@ client = ElevenLabs(
     api_key=ELEVENLABS_API_KEY,
 )
 
-def text_to_speech_stream(text: str) -> IO[bytes]:
+def text_to_speech_stream(text: str) -> BytesIO:
+    """
+    Convert text to speech and return a BytesIO object containing MP3 audio data.
+    
+    Args:
+        text: The text to convert to speech
+        
+    Returns:
+        BytesIO: A stream containing the audio data
+    """
     # Perform the text-to-speech conversion
     response = client.text_to_speech.convert(
         voice_id="nPczCjzI2devNBz1zQrb",  # Brian pre-made voice
@@ -46,7 +55,13 @@ def text_to_speech_stream(text: str) -> IO[bytes]:
     return audio_stream
 
 def play_audio_stream(audio_stream: IO[bytes]):
-    """Play audio directly without interrupt handling"""
+    """
+    Play audio directly without interrupt handling.
+    This function is kept for backward compatibility or local testing.
+    
+    Args:
+        audio_stream: A BytesIO object containing audio data
+    """
     pygame.mixer.init(frequency=22050)
     pygame.mixer.music.load(audio_stream)
     pygame.mixer.music.play()

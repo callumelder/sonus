@@ -1,10 +1,13 @@
 from typing import Literal
 import json
 from time import time
+from asyncio import Queue
+import base64
 
-# from transcribe import MicrophoneStream
-from .synthesize import text_to_speech_stream, play_audio_stream
+# Import required modules
+from .synthesize import text_to_speech_stream
 from .assistant import setup_assistant, setup_gmail_tools, EndConversationTool
+from main import handle_workflow_message
 
 from google.cloud import speech
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -43,32 +46,18 @@ def create_websocket_aware_transcribe(websocket):
     async def websocket_transcribe(state: MessagesState) -> MessagesState:
         """
         Transcribe node that requests audio through the WebSocket connection.
-        
-        Args:
-            state (MessagesState): The current state of the conversation
-            
-        Returns:
-            MessagesState: Updated state with transcribed message
         """
         start = log_state("Transcribe")
         
-        # Import the handler from main
-        from main import handle_workflow_message
-        
-        # No need to create a new queue each time. Instead, ensure the websocket
-        # already has a transcript_queue attribute (created at connection time)
+        # Ensure the websocket has a transcript_queue attribute
         if not hasattr(websocket, 'transcript_queue'):
-            from asyncio import Queue
             websocket.transcript_queue = Queue()
-            # logger.info("Created new transcript queue for websocket")
         
         # Signal that we're starting transcription
         await handle_workflow_message(websocket, "start_listening")
         
         # Wait for transcription to complete (filled by SpeechProcessor)
-        # logger.info("Waiting for transcription from speech processor...")
         transcript = await websocket.transcript_queue.get()
-        # logger.info(f"Received transcript: {transcript}")
         
         # Signal that we're done with transcription
         await handle_workflow_message(websocket, "stop_listening")
@@ -82,36 +71,97 @@ def create_websocket_aware_transcribe(websocket):
     
     return websocket_transcribe
 
-def synthesize(state: MessagesState) -> MessagesState:
-    start = log_state("Synthesize")
-    message = state["messages"][-1]
-    if message.content:
-        print("[Synthesize] Converting text to speech...")
-        t0 = time()
-        audio_stream = text_to_speech_stream(message.content)
-        print(f"[Synthesize] Text-to-speech conversion took {time() - t0:.2f}s")
+def create_websocket_aware_synthesize(websocket):
+    """
+    Creates a synthesize function that sends audio through a specific WebSocket connection.
+    """
+    async def websocket_synthesize(state: MessagesState) -> MessagesState:
+        start = log_state("Synthesize")
         
-        print("[Synthesize] Starting playback...")
-        play_audio_stream(audio_stream)
-    log_state("Synthesize", start)
-    return state
+        message = state["messages"][-1]
+        
+        if message.content:
+            content = message.content
+            # Handle different message content formats
+            if isinstance(content, list):
+                text = content[0].get('text', '')
+            else:
+                text = content
+                
+            if not text:
+                log_state("Synthesize", start)
+                return state
+                
+            print(f"[Synthesize] Converting text to speech: {text[:50]}...")
+            t0 = time()
+            audio_stream = text_to_speech_stream(text)
+            print(f"[Synthesize] Text-to-speech conversion took {time() - t0:.2f}s")
+            
+            # Read the audio data
+            audio_data = audio_stream.read()
+            
+            # Convert to base64 for reliable transmission
+            encoded_audio = base64.b64encode(audio_data).decode('utf-8')
+            
+            # Send audio data
+            audio_size = len(audio_data)
+            print(f"[Synthesize] Sending audio to front-end: {audio_size} bytes")
+            await handle_workflow_message(
+                websocket, 
+                "audio_response", 
+                {
+                    "format": "mp3",
+                    "data": encoded_audio,
+                    "size": audio_size
+                }
+            )
+            
+        log_state("Synthesize", start)
+        return state
+        
+    return websocket_synthesize
 
 class BasicToolNode:
     """A node that runs the tools requested in the last AIMessage."""
 
-    def __init__(self, tools: list) -> None:
+    def __init__(self, tools: list, websocket) -> None:
         self.tools_by_name = {tool.name: tool for tool in tools}
+        self.websocket = websocket
 
-    def __call__(self, inputs: dict):
+    async def __call__(self, inputs: dict):        
         if messages := inputs.get("messages", []):
             message = messages[-1]
-            transcript = message.content[0]['text']
+            if hasattr(message, 'content') and message.content:
+                if isinstance(message.content, list):
+                    transcript = message.content[0].get('text', '')
+                else:
+                    transcript = message.content
+                    
+                # Only synthesize if there's text to speak
+                if transcript:
+                    # Synthesis for intermediate message
+                    audio_stream = text_to_speech_stream(transcript)
+                    
+                    # Read the audio data
+                    audio_data = audio_stream.read()
+                    
+                    # Convert to base64 for reliable transmission
+                    encoded_audio = base64.b64encode(audio_data).decode('utf-8')
+                    
+                    # Send audio data
+                    audio_size = len(audio_data)
+                    print(f"[Tools] Sending audio to front-end: {audio_size} bytes")
+                    await handle_workflow_message(
+                        self.websocket, 
+                        "audio_response", 
+                        {
+                            "format": "mp3",
+                            "data": encoded_audio,
+                            "size": audio_size
+                        }
+                    )
         else:
             raise ValueError("No message found in input")
-        
-        # Synthesis
-        audio_stream = text_to_speech_stream(transcript)
-        play_audio_stream(audio_stream)
         
         # Tool Call
         outputs = []
@@ -133,7 +183,6 @@ def tools_condition(state: MessagesState) -> Literal["tools", "synthesize", "fin
     print("[Router] Checking message for tool calls...")
     latest_message = state["messages"][-1]
     print(f"[Router] Latest message type: {type(latest_message)}")
-    print(f"[Router] Latest message content: {latest_message}")
     
     if hasattr(latest_message, 'tool_calls') and latest_message.tool_calls:
         # Check if end_conversation tool was called
@@ -147,36 +196,57 @@ def tools_condition(state: MessagesState) -> Literal["tools", "synthesize", "fin
     print("[Router] No tool calls, routing to synthesize")
     return "synthesize"
 
-def final_output(state: MessagesState) -> MessagesState:
-    """Handle final message synthesis before ending conversation"""
-    print("[Final Output] Processing final message...")
-    start = log_state("Final Output")
-    
-    message = state["messages"][-1]
-    if message.content and isinstance(message.content, list) and message.content[0].get('text'):
-        text = message.content[0]['text']
-        print(f"Final text to speak: {text}")
+def create_websocket_aware_final_output(websocket):
+    async def websocket_aware_final_output(state: MessagesState) -> MessagesState:
+        """Handle final message synthesis before ending conversation"""
+        print("[Final Output] Processing final message...")
+        start = log_state("Final Output")
         
-        print("[Final Output] Converting final text to speech...")
-        t0 = time()
-        audio_stream = text_to_speech_stream(text)
-        print(f"[Final Output] Text-to-speech conversion took {time() - t0:.2f}s")
-        
-        print("[Final Output] Starting final playback...")
-        play_audio_stream(audio_stream)
-        
-    log_state("Final Output", start)
-    return state
+        message = state["messages"][-1]
+        if message.content:
+            if isinstance(message.content, list):
+                text = message.content[0].get('text', '')
+            else:
+                text = message.content
+                
+            if not text:
+                log_state("Final Output", start)
+                return state
+                
+            print(f"[Final Output] Final text to speak: {text[:50]}...")
+            
+            print("[Final Output] Converting final text to speech...")
+            t0 = time()
+            audio_stream = text_to_speech_stream(text)
+            print(f"[Final Output] Text-to-speech conversion took {time() - t0:.2f}s")
+            
+            # Read the audio data
+            audio_data = audio_stream.read()
+            
+            # Convert to base64 for reliable transmission
+            encoded_audio = base64.b64encode(audio_data).decode('utf-8')
+            
+            # Send audio data
+            audio_size = len(audio_data)
+            print(f"[Final Output] Sending final audio to front-end: {audio_size} bytes")
+            await handle_workflow_message(
+                websocket, 
+                "audio_response", 
+                {
+                    "format": "mp3",
+                    "data": encoded_audio,
+                    "size": audio_size,
+                    "isComplete": True
+                }
+            )
+            
+        log_state("Final Output", start)
+        return state
+    return websocket_aware_final_output
 
 def setup_graph_with_websocket(websocket):
     """
     Creates a workflow graph with nodes that can communicate through a WebSocket.
-    
-    Args:
-        websocket (WebSocket): The WebSocket connection to use
-        
-    Returns:
-        StateGraph: A compiled workflow graph
     """
     # Setup tools
     tools = setup_gmail_tools()
@@ -186,17 +256,19 @@ def setup_graph_with_websocket(websocket):
     
     # Create and compile the graph
     graph_builder = StateGraph(MessagesState)
-    tool_node = BasicToolNode(tools=tools)
+    tool_node = BasicToolNode(tools=tools, websocket=websocket)
     
-    # Create WebSocket-aware transcribe function
+    # Create WebSocket-aware functions
     websocket_transcribe = create_websocket_aware_transcribe(websocket)
+    websocket_synthesize = create_websocket_aware_synthesize(websocket)
+    websocket_final_output = create_websocket_aware_final_output(websocket)
     
     # Nodes
     graph_builder.add_node("chatbot", chatbot(assistant))
     graph_builder.add_node("tools", tool_node)
     graph_builder.add_node("transcribe", websocket_transcribe)
-    graph_builder.add_node("synthesize", synthesize)
-    graph_builder.add_node("final_output", final_output)
+    graph_builder.add_node("synthesize", websocket_synthesize)
+    graph_builder.add_node("final_output", websocket_final_output)
     
     # Edges
     graph_builder.add_edge(START, "transcribe")
@@ -217,20 +289,3 @@ def setup_graph_with_websocket(websocket):
     )
     
     return graph_builder.compile()
-
-if __name__ == "__main__":
-    # Setup speech client
-    client = speech.SpeechClient()
-    recognition_config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=16000,
-        language_code="en-US",
-    )
-    streaming_config = speech.StreamingRecognitionConfig(
-        config=recognition_config, interim_results=True
-    )
-    
-    # Setup and run the graph
-    graph = setup_graph_with_websocket("ws://192.168.1.104:8000/ws")
-    state = MessagesState(messages=[])
-    state = graph.invoke(state)

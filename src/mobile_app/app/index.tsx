@@ -8,6 +8,7 @@ const VoiceInterface = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [metering, setMetering] = useState<number>(0);
   const [wsConnected, setWsConnected] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const meterInterval = useRef<NodeJS.Timeout | null>(null);
   const pulseAnimation = useRef<Animated.CompositeAnimation | null>(null);
@@ -15,6 +16,9 @@ const VoiceInterface = () => {
   const lastProcessedSize = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  
+  // Sound reference for playback
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
     // Initialize WebSocket connection
@@ -44,29 +48,50 @@ const VoiceInterface = () => {
     };
   
     ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      // Handle different message types
-      switch (data.type) {
-        case "start_listening":
-          console.log('[WebSocket] Received command to start listening');
-          startRecording();
-          break;
-          
-        case "stop_listening":
-          console.log('[WebSocket] Received command to stop listening');
-          stopRecording();
-          break;
-          
-        case "interim_transcript":
-          console.log('[WebSocket] Interim transcript:', data.text);
-          // Update UI with interim transcript if desired
-          break;
-          
-        case "final_transcript":
-          console.log('[WebSocket] Final transcript:', data.text);
-          // Update UI with final transcript if desired
-          break;
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Log the message type but not the full data content for audio responses
+        if (data.type === 'audio_response') {
+          console.log(`[WebSocket] Received ${data.type}, size: ${data.size || 'unknown'}`);
+        } else {
+          console.log('[WebSocket] Received:', data);
+        }
+        
+        // Handle different message types
+        switch (data.type) {
+          case "start_listening":
+            console.log('[WebSocket] Received command to start listening');
+            startRecording();
+            break;
+            
+          case "stop_listening":
+            console.log('[WebSocket] Received command to stop listening');
+            stopRecording();
+            break;
+            
+          case "interim_transcript":
+            console.log('[WebSocket] Interim transcript:', data.text);
+            // Update UI with interim transcript if desired
+            break;
+            
+          case "final_transcript":
+            console.log('[WebSocket] Final transcript:', data.text);
+            // Update UI with final transcript if desired
+            break;
+            
+          case "audio_response":
+            // Handle incoming audio data for playback
+            console.log(`[WebSocket] Received audio data of size: ${data.size || 'unknown'} bytes`);
+            if (data.data && data.data.length > 0) {
+              handleAudioResponse(data);
+            } else {
+              console.warn('[WebSocket] Received empty audio data');
+            }
+            break;
+        }
+      } catch (error) {
+        console.error('[WebSocket] Error processing message:', error);
       }
     };
 
@@ -78,6 +103,15 @@ const VoiceInterface = () => {
         return;
       }
       console.log('Microphone permissions granted');
+      
+      // Configure audio mode for both recording and playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: true,
+      });
     };
 
     initializeAudio();
@@ -97,6 +131,10 @@ const VoiceInterface = () => {
       if (ws.current) {
         ws.current.close();
       }
+      // Unload any sound if it exists
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
     };
   }, []);
 
@@ -104,6 +142,54 @@ const VoiceInterface = () => {
   useEffect(() => {
     recordingRef.current = recording;
   }, [recording]);
+
+  // Handle incoming audio from the backend
+  const handleAudioResponse = async (data: { data: string, format: string, size?: number, isComplete?: boolean }) => {
+    try {
+      // If we're already playing something, we should unload it first
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+      
+      // Decode base64 data
+      const base64Audio = data.data;
+      const uri = `data:audio/${data.format};base64,${base64Audio}`;
+      
+      console.log(`[Audio] Creating sound from ${data.size || 'unknown'} bytes of data`);
+      
+      // Create and load the new sound
+      const { sound } = await Audio.Sound.createAsync(
+        { uri },
+        { shouldPlay: true },
+        (status) => {
+          // Handle playback status updates
+          if (!status.isLoaded) {
+            return;
+          }
+          
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            
+            // Clean up after playback
+            if (soundRef.current) {
+              soundRef.current.unloadAsync();
+              soundRef.current = null;
+            }
+          }
+        }
+      );
+      
+      // Store reference and update UI
+      soundRef.current = sound;
+      setIsPlaying(true);
+      
+      console.log('[Audio] Started playback');
+      
+    } catch (error) {
+      console.error('[Audio] Error playing audio:', error);
+    }
+  };
 
   const startPulseAnimation = () => {
     // Stop existing animation if any
@@ -279,8 +365,8 @@ const VoiceInterface = () => {
             styles.orb,
             {
               transform: [{ scale: pulseAnim }],
-              backgroundColor: '#60A5FA',
-              shadowColor: '#60A5FA',
+              backgroundColor: isPlaying ? '#4CAF50' : '#60A5FA',
+              shadowColor: isPlaying ? '#4CAF50' : '#60A5FA',
               opacity: isMuted ? 0.4 : (0.4 + (normalizedMeter * 0.6)),
             }
           ]}
@@ -293,6 +379,9 @@ const VoiceInterface = () => {
         </Text>
         <Text style={[styles.meterText, { color: isListening ? '#4CAF50' : '#F44336' }]}>
           Listening: {isListening ? 'Active' : 'Inactive'}
+        </Text>
+        <Text style={[styles.meterText, { color: isPlaying ? '#4CAF50' : '#F44336' }]}>
+          Audio: {isPlaying ? 'Playing' : 'Not Playing'}
         </Text>
       </View>
 
