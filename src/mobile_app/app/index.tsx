@@ -106,7 +106,7 @@ const VoiceInterface = () => {
       
       // Configure audio mode for both recording and playback
       await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
+        allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
@@ -179,6 +179,15 @@ const VoiceInterface = () => {
           }
         }
       );
+
+      // Set audio mode for speaker playback
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,  // Disable recording mode
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: true,
+      });
       
       // Store reference and update UI
       soundRef.current = sound;
@@ -335,6 +344,15 @@ const VoiceInterface = () => {
         setRecording(null);
         lastProcessedSize.current = 0;  // Reset the counter
       }
+
+      // Reset audio mode to disable recording and use speakers
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,  // Key change for iOS
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: true,
+      });
     } catch (err) {
       console.error('Failed to stop recording', err);
     } finally {
@@ -355,7 +373,7 @@ const VoiceInterface = () => {
   };
 
   // Normalize metering value to a scale we can use
-  const normalizedMeter = Math.max(0, (metering + 160) / 160);
+  // const normalizedMeter = Math.max(0, (metering + 160) / 160);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -367,13 +385,13 @@ const VoiceInterface = () => {
               transform: [{ scale: pulseAnim }],
               backgroundColor: isPlaying ? '#4CAF50' : '#60A5FA',
               shadowColor: isPlaying ? '#4CAF50' : '#60A5FA',
-              opacity: isMuted ? 0.4 : (0.4 + (normalizedMeter * 0.6)),
+              // opacity: isMuted ? 0.4 : (0.4 + (normalizedMeter * 0.6)),
             }
           ]}
         />
-        <Text style={styles.meterText}>
+        {/* <Text style={styles.meterText}>
           Level: {normalizedMeter.toFixed(2)}
-        </Text>
+        </Text> */}
         <Text style={[styles.meterText, { color: wsConnected ? '#4CAF50' : '#F44336' }]}>
           WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
         </Text>
