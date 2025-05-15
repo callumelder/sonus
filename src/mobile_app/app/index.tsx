@@ -7,7 +7,7 @@ const VoiceInterface = () => {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   // const [metering, setMetering] = useState<number>(0);
-  const [wsConnected, setWsConnected] = useState(false);
+  // const [wsConnected, setWsConnected] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const meterInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -20,13 +20,29 @@ const VoiceInterface = () => {
   // Sound reference for playback
   const soundRef = useRef<Audio.Sound | null>(null);
 
+  const setAudioModeForRecording = async () => {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+  };
+
+  const setAudioModeForPlayback = async () => {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: true,
+    });
+  };
+
   useEffect(() => {
     // Initialize WebSocket connection
     ws.current = new WebSocket('ws://192.168.1.104:8000/ws');  // Replace with your IP
   
     ws.current.onopen = () => {
       console.log('WebSocket Connected');
-      setWsConnected(true);
       
       // Signal that we're ready to start a conversation
       if (ws.current?.readyState === WebSocket.OPEN) {
@@ -38,13 +54,16 @@ const VoiceInterface = () => {
   
     ws.current.onclose = () => {
       console.log('WebSocket Disconnected');
-      setWsConnected(false);
       setIsListening(false);
     };
   
     ws.current.onerror = (error) => {
       console.error('WebSocket Error:', error);
-      setWsConnected(false);
+      setIsListening(false);
+      // Close the connection if it's still open
+      if (ws.current && ws.current.readyState !== WebSocket.CLOSED) {
+        ws.current.close();
+      }
     };
   
     ws.current.onmessage = (event) => {
@@ -103,15 +122,6 @@ const VoiceInterface = () => {
         return;
       }
       console.log('Microphone permissions granted');
-      
-      // Configure audio mode for both recording and playback
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: true,
-      });
     };
 
     initializeAudio();
@@ -179,15 +189,6 @@ const VoiceInterface = () => {
           }
         }
       );
-
-      // Set audio mode for speaker playback
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,  // Disable recording mode
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: true,
-      });
       
       // Store reference and update UI
       soundRef.current = sound;
@@ -249,11 +250,8 @@ const VoiceInterface = () => {
       // Reset the processed size counter
       lastProcessedSize.current = 0;
   
-      // Configure audio mode for recording
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
+      // Set audio mode for recording
+      await setAudioModeForRecording();
   
       console.log('[Recording] Starting new recording...');
       const { recording: recorderInstance } = await Audio.Recording.createAsync(
@@ -338,14 +336,9 @@ const VoiceInterface = () => {
         lastProcessedSize.current = 0;  // Reset the counter
       }
 
-      // Reset audio mode to disable recording and use speakers
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,  // Key change for iOS
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: true,
-      });
+      // Set audio mode for playback
+      await setAudioModeForPlayback()
+
     } catch (err) {
       console.error('Failed to stop recording', err);
     } finally {
