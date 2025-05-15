@@ -6,11 +6,11 @@ import { Audio } from 'expo-av';
 const VoiceInterface = () => {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isMuted, setIsMuted] = useState(false);
-  const [metering, setMetering] = useState<number>(0);
+  // const [metering, setMetering] = useState<number>(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const meterInterval = useRef<NodeJS.Timeout | null>(null);
+  const meterInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnimation = useRef<Animated.CompositeAnimation | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const lastProcessedSize = useRef(0);
@@ -278,13 +278,7 @@ const VoiceInterface = () => {
             mimeType: 'audio/wav',
             bitsPerSecond: 16000 * 16,
           },
-        },
-        (status) => {
-          if (status.metering !== undefined) {
-            setMetering(status.metering);
-          }
-        },
-        100
+        }
       );
       
       setRecording(recorderInstance);
@@ -340,7 +334,6 @@ const VoiceInterface = () => {
       if (recordingRef.current) {
         console.log('Stopping recording instance...');
         await recordingRef.current.stopAndUnloadAsync();
-        setMetering(-160);
         setRecording(null);
         lastProcessedSize.current = 0;  // Reset the counter
       }
@@ -372,9 +365,6 @@ const VoiceInterface = () => {
     setIsMuted(!isMuted);
   };
 
-  // Normalize metering value to a scale we can use
-  // const normalizedMeter = Math.max(0, (metering + 160) / 160);
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.orbContainer}>
@@ -384,15 +374,11 @@ const VoiceInterface = () => {
             {
               transform: [{ scale: pulseAnim }],
               backgroundColor: isPlaying ? '#4CAF50' : '#60A5FA',
-              shadowColor: isPlaying ? '#4CAF50' : '#60A5FA',
-              // opacity: isMuted ? 0.4 : (0.4 + (normalizedMeter * 0.6)),
+              shadowColor: isPlaying ? '#4CAF50' : '#60A5FA'
             }
           ]}
         />
-        {/* <Text style={styles.meterText}>
-          Level: {normalizedMeter.toFixed(2)}
-        </Text> */}
-        <Text style={[styles.meterText, { color: wsConnected ? '#4CAF50' : '#F44336' }]}>
+        {/* <Text style={[styles.meterText, { color: wsConnected ? '#4CAF50' : '#F44336' }]}>
           WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
         </Text>
         <Text style={[styles.meterText, { color: isListening ? '#4CAF50' : '#F44336' }]}>
@@ -400,7 +386,7 @@ const VoiceInterface = () => {
         </Text>
         <Text style={[styles.meterText, { color: isPlaying ? '#4CAF50' : '#F44336' }]}>
           Audio: {isPlaying ? 'Playing' : 'Not Playing'}
-        </Text>
+        </Text> */}
       </View>
 
       <View style={styles.buttonContainer}>
