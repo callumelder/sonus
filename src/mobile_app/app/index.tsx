@@ -16,29 +16,10 @@ const VoiceInterface = () => {
   const lastProcessedSize = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
-  
-  // Sound reference for playback
   const soundRef = useRef<Audio.Sound | null>(null);
 
-  const setAudioModeForRecording = async () => {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-    });
-  };
-
-  const setAudioModeForPlayback = async () => {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-      staysActiveInBackground: true,
-    });
-  };
-
+  // Initialize WebSocket connection
   useEffect(() => {
-    // Initialize WebSocket connection
     ws.current = new WebSocket('ws://192.168.1.104:8000/ws');  // Replace with your IP
   
     ws.current.onopen = () => {
@@ -89,10 +70,10 @@ const VoiceInterface = () => {
             stopRecording();
             break;
             
-          case "interim_transcript":
-            console.log('[WebSocket] Interim transcript:', data.text);
-            // Update UI with interim transcript if desired
-            break;
+          // case "interim_transcript":
+          //   console.log('[WebSocket] Interim transcript:', data.text);
+          //   // Update UI with interim transcript if desired
+          //   break;
             
           case "final_transcript":
             console.log('[WebSocket] Final transcript:', data.text);
@@ -114,6 +95,16 @@ const VoiceInterface = () => {
       }
     };
 
+    // Cleanup when component unmounts
+    return () => {
+      if (ws.current) {
+        ws.current.close();
+      }
+    };
+  }, []);
+
+  // Initialise audio
+  useEffect(() => {
     // Request permissions and start recording when component mounts
     const initializeAudio = async () => {
       const { status } = await Audio.requestPermissionsAsync();
@@ -125,33 +116,70 @@ const VoiceInterface = () => {
     };
 
     initializeAudio();
+  }, [])
+
+  // Initialise animation
+  useEffect(() => {
+    const startPulseAnimation = () => {
+      // Stop existing animation if any
+      if (pulseAnimation.current) {
+        pulseAnimation.current.stop();
+      }
+
+      // Reset to initial value
+      pulseAnim.setValue(1);
+
+      // Create new pulse animation sequence
+      pulseAnimation.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.2,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          })
+        ])
+      );
+    
+      // Start the animation
+      pulseAnimation.current.start();
+    };
 
     // Start pulsing animation
     startPulseAnimation();
 
-    // Cleanup when component unmounts
     return () => {
-      stopRecording(); // Make sure to stop recording on unmount
-      if (meterInterval.current) {
-        clearInterval(meterInterval.current);
-      }
       if (pulseAnimation.current) {
         pulseAnimation.current.stop();
       }
-      if (ws.current) {
-        ws.current.close();
-      }
-      // Unload any sound if it exists
-      if (soundRef.current) {
-        soundRef.current.unloadAsync();
-      }
     };
-  }, []);
+  }, [])
 
   // Update recordingRef whenever recording state changes
   useEffect(() => {
     recordingRef.current = recording;
   }, [recording]);
+
+  const setAudioModeForRecording = async () => {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+  };
+
+  const setAudioModeForPlayback = async () => {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: true,
+    });
+  };
 
   // Handle incoming audio from the backend
   const handleAudioResponse = async (data: { data: string, format: string, size?: number, isComplete?: boolean }) => {
@@ -199,35 +227,6 @@ const VoiceInterface = () => {
     } catch (error) {
       console.error('[Audio] Error playing audio:', error);
     }
-  };
-
-  const startPulseAnimation = () => {
-    // Stop existing animation if any
-    if (pulseAnimation.current) {
-      pulseAnimation.current.stop();
-    }
-
-    // Reset to initial value
-    pulseAnim.setValue(1);
-
-    // Create new pulse animation sequence
-    pulseAnimation.current = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.2,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1500,
-          useNativeDriver: true,
-        })
-      ])
-    );
-
-    // Start the animation
-    pulseAnimation.current.start();
   };
 
   const startRecording = async () => {
