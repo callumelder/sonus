@@ -20,30 +20,9 @@ class Assistant:
         self.runnable = runnable
 
     def __call__(self, state: MessagesState):
-        attempt = 1
-        start_time = time()
         print("[Assistant] Starting LLM invocation...")
-        
-        while True:
-            print(f"[Assistant] Attempt {attempt} starting at {time() - start_time:.2f}s")
-            t0 = time()
-            result = self.runnable.invoke(state)
-            print(f"[Assistant] Invoke took {time() - t0:.2f}s")
-            print(f"[Assistant] Result: {result}")
-            
-            if not result.tool_calls and (
-                not result.content
-                or isinstance(result.content, list)
-                and not result.content[0].get("text")
-            ):
-                print(f"[Assistant] Got invalid response on attempt {attempt}, retrying...")
-                messages = state["messages"] + [("user", "Respond with a real output.")]
-                state = {**state, "messages": messages}
-                attempt += 1
-            else:
-                print(f"[Assistant] Got valid response after {attempt} attempts")
-                print(f"[Assistant] Total time: {time() - start_time:.2f}s")
-                break
+        result = self.runnable.invoke(state)
+        print(f"[Assistant] Result: {result}")
                 
         return {"messages": result}
 
