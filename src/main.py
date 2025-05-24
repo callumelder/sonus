@@ -134,8 +134,9 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Initialize SpeechProcessor once at connection time
     speech_processor = SpeechProcessor(websocket)
-    # Create a transcript queue for this connection and attach it to the websocket
+    # Create queues for this connection and attach them to the websocket
     websocket.transcript_queue = asyncio.Queue()
+    websocket.playback_queue = asyncio.Queue()  # Add playback completion queue
     speech_processor.transcript_queue = websocket.transcript_queue
     
     # Start the speech processor immediately
@@ -166,6 +167,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         await speech_processor.start()
                     
                     await speech_processor.add_chunk(chunk)
+                
+                elif data["type"] == "playback_completed":
+                    logger.info("Received playback completion notification")
+                    # Signal the synthesize node that playback is complete
+                    if hasattr(websocket, 'playback_queue'):
+                        await websocket.playback_queue.put("completed")
                     
                 elif data["type"] == "stop":
                     logger.info("Received stop signal")

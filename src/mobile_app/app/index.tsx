@@ -170,7 +170,7 @@ const VoiceInterface = () => {
   };
 
   // Handle incoming audio from the backend
-  const handleAudioResponse = async (data: { data: string, format: string, size?: number, isComplete?: boolean }) => {
+  const handleAudioResponse = async (data: { data: string, format: string, size?: number, isComplete?: boolean, wait_for_completion?: boolean }) => {
     try {
       // If we're already playing something, we should unload it first
       if (soundRef.current) {
@@ -197,6 +197,14 @@ const VoiceInterface = () => {
           if (status.didJustFinish) {
             setIsPlaying(false);
             
+            // Send completion notification to backend if requested
+            if (data.wait_for_completion && ws.current?.readyState === WebSocket.OPEN) {
+              console.log('[Audio] Sending playback completion notification');
+              ws.current.send(JSON.stringify({
+                type: 'playback_completed'
+              }));
+            }
+            
             // Clean up after playback
             if (soundRef.current) {
               soundRef.current.unloadAsync();
@@ -212,21 +220,15 @@ const VoiceInterface = () => {
       
       console.log('[Audio] Started playback');
       
-      // Wait for playback to finish before returning
-      await new Promise<void>((resolve) => {
-        const checkPlaying = () => {
-          if (!isPlaying) {
-            console.log('[Audio] Playback finished');
-            resolve();
-          } else {
-            setTimeout(checkPlaying, 50);
-          }
-        };
-        checkPlaying();
-      });
-      
     } catch (error) {
       console.error('[Audio] Error playing audio:', error);
+      
+      // Send completion notification even on error if requested
+      if (data.wait_for_completion && ws.current?.readyState === WebSocket.OPEN) {
+        ws.current.send(JSON.stringify({
+          type: 'playback_completed'
+        }));
+      }
     }
   };
 
@@ -242,7 +244,7 @@ const VoiceInterface = () => {
       setIsListening(true);
   
       // Make sure any existing recording is stopped first
-      await stopRecording(false); // Pass false to not reset isListening
+      // await stopRecording(); // Pass false to not reset isListening
       
       // Small delay to ensure clean state
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -318,7 +320,7 @@ const VoiceInterface = () => {
     }
   };
 
-  const stopRecording = async (resetListening = true) => {
+  const stopRecording = async () => {
     try {
       console.log('stopRecording called, recording ref:', recordingRef.current);
       
@@ -342,10 +344,7 @@ const VoiceInterface = () => {
     } catch (err) {
       console.error('Failed to stop recording', err);
     } finally {
-      // Only reset isListening if specified
-      if (resetListening) {
-        setIsListening(false);
-      }
+      setIsListening(false);
     }
   };
 

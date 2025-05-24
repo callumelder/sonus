@@ -106,6 +106,10 @@ def create_websocket_aware_synthesize(websocket):
             # Convert to base64 for reliable transmission
             encoded_audio = base64.b64encode(audio_data).decode('utf-8')
             
+            # Create a playback completion queue if it doesn't exist
+            if not hasattr(websocket, 'playback_queue'):
+                websocket.playback_queue = Queue()
+            
             # Send audio data
             audio_size = len(audio_data)
             logger.info(f"[Synthesize] Sending audio to front-end: {audio_size} bytes")
@@ -115,9 +119,15 @@ def create_websocket_aware_synthesize(websocket):
                 {
                     "format": "mp3",
                     "data": encoded_audio,
-                    "size": audio_size
+                    "size": audio_size,
+                    "wait_for_completion": True  # Signal that we need completion notification
                 }
             )
+            
+            # Wait for playback completion before proceeding
+            logger.info("[Synthesize] Waiting for playback completion...")
+            await websocket.playback_queue.get()
+            logger.info("[Synthesize] Playback completed, continuing workflow...")
             
         log_state("Synthesize", start)
         return state
@@ -131,8 +141,9 @@ class BasicToolNode:
         self.tools_by_name = {tool.name: tool for tool in tools}
         self.websocket = websocket
 
-    async def __call__(self, inputs: dict):        
-        if messages := inputs.get("messages", []):
+    async def __call__(self, inputs: dict):   
+        messages = inputs.get("messages", [])     
+        if messages:
             message = messages[-1]
             if hasattr(message, 'content') and message.content:
                 if isinstance(message.content, list):
@@ -160,7 +171,8 @@ class BasicToolNode:
                         {
                             "format": "mp3",
                             "data": encoded_audio,
-                            "size": audio_size
+                            "size": audio_size,
+                            "wait_for_completion": True
                         }
                     )
         else:
