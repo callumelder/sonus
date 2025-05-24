@@ -1,5 +1,6 @@
 from typing import Literal
 import json
+import logging
 from time import time
 from asyncio import Queue
 import base64
@@ -13,22 +14,24 @@ from google.cloud import speech
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langchain_core.messages import ToolMessage
 
+# Set up logger
+logger = logging.getLogger(__name__)
 
 def log_state(state_name: str, start_time: float = None):
     if start_time:
         duration = time() - start_time
-        print(f"[{state_name}] Completed in {duration:.2f}s")
+        logger.info(f"[{state_name}] Completed in {duration:.2f}s")
     else:
-        print(f"[{state_name}] Starting...")
+        logger.info(f"[{state_name}] Starting...")
         return time()
     
 def chatbot(assistant_instance):
     def chatbot_node(state: MessagesState) -> MessagesState:
-        print("[Chatbot] Processing message...")
-        print(f"[Chatbot] Input state messages: {state['messages']}")
+        logger.info("[Chatbot] Processing message...")
+        logger.debug(f"[Chatbot] Input state messages: {state['messages']}")
         start = log_state("Chatbot")
         result = assistant_instance(state)
-        print(f"[Chatbot] Output result: {result}")
+        logger.debug(f"[Chatbot] Output result: {result}")
         log_state("Chatbot", start)
         return result
     return chatbot_node
@@ -92,10 +95,10 @@ def create_websocket_aware_synthesize(websocket):
                 log_state("Synthesize", start)
                 return state
                 
-            print(f"[Synthesize] Converting text to speech: {text[:50]}...")
+            logger.info(f"[Synthesize] Converting text to speech: {text[:50]}...")
             t0 = time()
             audio_stream = text_to_speech_stream(text)
-            print(f"[Synthesize] Text-to-speech conversion took {time() - t0:.2f}s")
+            logger.info(f"[Synthesize] Text-to-speech conversion took {time() - t0:.2f}s")
             
             # Read the audio data
             audio_data = audio_stream.read()
@@ -105,7 +108,7 @@ def create_websocket_aware_synthesize(websocket):
             
             # Send audio data
             audio_size = len(audio_data)
-            print(f"[Synthesize] Sending audio to front-end: {audio_size} bytes")
+            logger.info(f"[Synthesize] Sending audio to front-end: {audio_size} bytes")
             await handle_workflow_message(
                 websocket, 
                 "audio_response", 
@@ -150,7 +153,7 @@ class BasicToolNode:
                     
                     # Send audio data
                     audio_size = len(audio_data)
-                    print(f"[Tools] Sending audio to front-end: {audio_size} bytes")
+                    logger.info(f"[Tools] Sending audio to front-end: {audio_size} bytes")
                     await handle_workflow_message(
                         self.websocket, 
                         "audio_response", 
@@ -180,26 +183,26 @@ class BasicToolNode:
     
 def tools_condition(state: MessagesState) -> Literal["tools", "synthesize", "final_output"]:
     """Route to tools, synthesize, or final output based on message content"""
-    print("[Router] Checking message for tool calls...")
+    logger.debug("[Router] Checking message for tool calls...")
     latest_message = state["messages"][-1]
-    print(f"[Router] Latest message type: {type(latest_message)}")
+    logger.debug(f"[Router] Latest message type: {type(latest_message)}")
     
     if hasattr(latest_message, 'tool_calls') and latest_message.tool_calls:
         # Check if end_conversation tool was called
         for tool_call in latest_message.tool_calls:
             if tool_call["name"] == "end_conversation":
-                print("[Router] End conversation tool called, routing to final output")
+                logger.info("[Router] End conversation tool called, routing to final output")
                 return "final_output"
-        print("[Router] Tool calls present, routing to tools")
+        logger.debug("[Router] Tool calls present, routing to tools")
         return "tools"
     
-    print("[Router] No tool calls, routing to synthesize")
+    logger.debug("[Router] No tool calls, routing to synthesize")
     return "synthesize"
 
 def create_websocket_aware_final_output(websocket):
     async def websocket_aware_final_output(state: MessagesState) -> MessagesState:
         """Handle final message synthesis before ending conversation"""
-        print("[Final Output] Processing final message...")
+        logger.info("[Final Output] Processing final message...")
         start = log_state("Final Output")
         
         message = state["messages"][-1]
@@ -213,12 +216,12 @@ def create_websocket_aware_final_output(websocket):
                 log_state("Final Output", start)
                 return state
                 
-            print(f"[Final Output] Final text to speak: {text[:50]}...")
+            logger.info(f"[Final Output] Final text to speak: {text[:50]}...")
             
-            print("[Final Output] Converting final text to speech...")
+            logger.info("[Final Output] Converting final text to speech...")
             t0 = time()
             audio_stream = text_to_speech_stream(text)
-            print(f"[Final Output] Text-to-speech conversion took {time() - t0:.2f}s")
+            logger.info(f"[Final Output] Text-to-speech conversion took {time() - t0:.2f}s")
             
             # Read the audio data
             audio_data = audio_stream.read()
@@ -228,7 +231,7 @@ def create_websocket_aware_final_output(websocket):
             
             # Send audio data
             audio_size = len(audio_data)
-            print(f"[Final Output] Sending final audio to front-end: {audio_size} bytes")
+            logger.info(f"[Final Output] Sending final audio to front-end: {audio_size} bytes")
             await handle_workflow_message(
                 websocket, 
                 "audio_response", 
