@@ -6,8 +6,6 @@ import { Audio } from 'expo-av';
 const VoiceInterface = () => {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isMuted, setIsMuted] = useState(false);
-  // const [metering, setMetering] = useState<number>(0);
-  // const [wsConnected, setWsConnected] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const meterInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -68,16 +66,6 @@ const VoiceInterface = () => {
           case "stop_listening":
             console.log('[WebSocket] Received command to stop listening');
             stopRecording();
-            break;
-            
-          // case "interim_transcript":
-          //   console.log('[WebSocket] Interim transcript:', data.text);
-          //   // Update UI with interim transcript if desired
-          //   break;
-            
-          case "final_transcript":
-            console.log('[WebSocket] Final transcript:', data.text);
-            // Update UI with final transcript if desired
             break;
             
           case "audio_response":
@@ -223,6 +211,19 @@ const VoiceInterface = () => {
       setIsPlaying(true);
       
       console.log('[Audio] Started playback');
+      
+      // Wait for playback to finish before returning
+      await new Promise<void>((resolve) => {
+        const checkPlaying = () => {
+          if (!isPlaying) {
+            console.log('[Audio] Playback finished');
+            resolve();
+          } else {
+            setTimeout(checkPlaying, 50);
+          }
+        };
+        checkPlaying();
+      });
       
     } catch (error) {
       console.error('[Audio] Error playing audio:', error);

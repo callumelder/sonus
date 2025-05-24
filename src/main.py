@@ -100,12 +100,7 @@ class SpeechProcessor:
     async def _send_transcript(self, transcript: str, is_final: bool):
         """Sends transcript back to the client and to the workflow if final."""
         try:
-            await self.websocket.send_json({
-                "type": "final_transcript" if is_final else "interim_transcript",
-                "text": transcript
-            })
-            
-            # If this is a final transcript and we're in workflow mode, put it in the queue
+            # Put final transcript in queue
             if is_final and self.transcript_queue:
                 await self.transcript_queue.put(transcript)
                 
@@ -115,8 +110,6 @@ class SpeechProcessor:
     async def add_chunk(self, chunk: bytes):
         """Adds an audio chunk to the processing queue."""
         if self.is_streaming:
-            # chunk_size = len(chunk)
-            # logger.debug(f"Adding chunk of size {chunk_size} to queue")
             self.audio_queue.put(chunk)
 
     async def stop(self):
