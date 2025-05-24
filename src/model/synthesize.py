@@ -1,14 +1,9 @@
 from dotenv import load_dotenv
 import os
-from typing import IO, Union
 from io import BytesIO
 
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
-
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-
-import pygame
 
 
 load_dotenv()
