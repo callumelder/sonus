@@ -53,22 +53,3 @@ def text_to_speech_stream(text: str) -> BytesIO:
     # Reset stream position to the beginning
     audio_stream.seek(0)
     return audio_stream
-
-def play_audio_stream(audio_stream: IO[bytes]):
-    """
-    Play audio directly without interrupt handling.
-    This function is kept for backward compatibility or local testing.
-    
-    Args:
-        audio_stream: A BytesIO object containing audio data
-    """
-    pygame.mixer.init(frequency=22050)
-    pygame.mixer.music.load(audio_stream)
-    pygame.mixer.music.play()
-    
-    # Wait for playback to finish
-    while pygame.mixer.music.get_busy():
-        pygame.time.Clock().tick(10)
-    
-    pygame.mixer.music.stop()
-    pygame.mixer.quit()
