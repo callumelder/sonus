@@ -251,7 +251,7 @@ def create_websocket_aware_final_output(websocket):
                     "format": "mp3",
                     "data": encoded_audio,
                     "size": audio_size,
-                    "isComplete": True
+                    "intermediate_response": False
                 }
             )
             
