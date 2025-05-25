@@ -174,10 +174,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     if hasattr(websocket, 'playback_queue'):
                         await websocket.playback_queue.put("completed")
                     
-                elif data["type"] == "stop":
-                    logger.info("Received stop signal")
-                    break
-                    
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON received: {e}")
             except Exception as e:
