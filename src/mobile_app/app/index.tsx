@@ -15,6 +15,7 @@ const VoiceInterface = () => {
   const [isListening, setIsListening] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const waitForFinalResponse = useRef(false);
 
   // Initialize WebSocket connection
   useEffect(() => {
@@ -170,8 +171,19 @@ const VoiceInterface = () => {
   };
 
   // Handle incoming audio from the backend
-  const handleAudioResponse = async (data: { data: string, format: string, size?: number, isComplete?: boolean, wait_for_completion?: boolean }) => {
+  const handleAudioResponse = async (data: { 
+    data: string, 
+    format: string, 
+    size?: number, 
+    intermediate_response?: boolean 
+  }) => {
     try {
+      if (data.intermediate_response) {
+        waitForFinalResponse.current = true;
+      }
+      else {
+        waitForFinalResponse.current = false;
+      }
       // If we're already playing something, we should unload it first
       if (soundRef.current) {
         await soundRef.current.unloadAsync();
@@ -198,7 +210,7 @@ const VoiceInterface = () => {
             setIsPlaying(false);
             
             // Send completion notification to backend if requested
-            if (data.wait_for_completion && ws.current?.readyState === WebSocket.OPEN) {
+            if (waitForFinalResponse.current === false && ws.current?.readyState === WebSocket.OPEN) {
               console.log('[Audio] Sending playback completion notification');
               ws.current.send(JSON.stringify({
                 type: 'playback_completed'
@@ -224,7 +236,7 @@ const VoiceInterface = () => {
       console.error('[Audio] Error playing audio:', error);
       
       // Send completion notification even on error if requested
-      if (data.wait_for_completion && ws.current?.readyState === WebSocket.OPEN) {
+      if (ws.current?.readyState === WebSocket.OPEN) {
         ws.current.send(JSON.stringify({
           type: 'playback_completed'
         }));

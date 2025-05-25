@@ -120,7 +120,7 @@ def create_websocket_aware_synthesize(websocket):
                     "format": "mp3",
                     "data": encoded_audio,
                     "size": audio_size,
-                    "wait_for_completion": True  # Signal that we need completion notification
+                    "intermediate_response": False
                 }
             )
             
@@ -172,7 +172,7 @@ class BasicToolNode:
                             "format": "mp3",
                             "data": encoded_audio,
                             "size": audio_size,
-                            "wait_for_completion": True
+                            "intermediate_response": True
                         }
                     )
         else:
