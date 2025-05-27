@@ -173,6 +173,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Signal the synthesize node that playback is complete
                     if hasattr(websocket, 'playback_queue'):
                         await websocket.playback_queue.put("completed")
+                        
+                elif data["type"] == "stop_processor":
+                    logger.info("Stopping speech processor during playback")
+                    await speech_processor.stop()
                     
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON received: {e}")

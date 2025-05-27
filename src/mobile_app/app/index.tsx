@@ -67,6 +67,7 @@ const VoiceInterface = () => {
           case "stop_listening":
             console.log('[WebSocket] Received command to stop listening');
             stopRecording();
+            stopSpeechProcessor();
             break;
             
           case "audio_response":
@@ -359,6 +360,15 @@ const VoiceInterface = () => {
       setIsListening(false);
     }
   };
+
+  const stopSpeechProcessor = async () => {
+    // Send completion notification even on error if requested
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify({
+        type: 'stop_processor'
+      }));
+    }
+  }
 
   const toggleMute = async () => {
     if (isMuted) {
