@@ -20,9 +20,7 @@ class Assistant:
         self.runnable = runnable
 
     def __call__(self, state: MessagesState):
-        print("[Assistant] Starting LLM invocation...")
         result = self.runnable.invoke(state)
-        print(f"[Assistant] Result: {result}")
                 
         return {"messages": result}
 
