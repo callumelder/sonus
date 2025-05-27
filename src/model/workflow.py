@@ -286,7 +286,7 @@ def setup_graph_with_websocket(websocket):
     graph_builder.add_node("final_output", websocket_final_output)
     
     # Edges
-    graph_builder.add_edge(START, "transcribe")
+    graph_builder.add_edge(START, "chatbot")
     graph_builder.add_edge("transcribe", "chatbot")
     graph_builder.add_edge("tools", "chatbot")
     graph_builder.add_edge("synthesize", "transcribe")
