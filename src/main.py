@@ -156,7 +156,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Start a new conversation workflow
                     # This runs asynchronously since the workflow will trigger
                     # the transcribe node which will request audio
-                    asyncio.create_task(workflow.ainvoke(state))
+                    asyncio.create_task(workflow.ainvoke(state, {"recursion_limit": 100}))
                 
                 elif data["type"] == "audio_data":
                     chunk = bytes(data["chunk"])
