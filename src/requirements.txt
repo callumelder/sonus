@@ -1,11 +1,12 @@
 elevenlabs==2.1.0
 fastapi==0.115.12
-google_api_python_client==2.151.0
+google_api_python_client==2.161.0
 google_auth_oauthlib==1.2.1
+google-cloud-speech==2.28.0
 langchain_anthropic==0.3.14
 langchain_core==0.3.62
 langchain_google_community==2.0.7
 langgraph==0.4.7
-protobuf==6.31.1
+protobuf>=3.20.2,<6.0.0
 pytz==2024.2
 uvicorn==0.34.2
