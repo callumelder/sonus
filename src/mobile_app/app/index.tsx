@@ -19,7 +19,7 @@ const VoiceInterface = () => {
 
   // Initialize WebSocket connection
   useEffect(() => {
-    ws.current = new WebSocket('ws://192.168.1.104:8000/ws');  // Replace with your IP
+    ws.current = new WebSocket('wss://sonus-production.up.railway.app/ws');  // Replace with your IP
   
     ws.current.onopen = () => {
       console.log('WebSocket Connected');
