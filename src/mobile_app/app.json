@@ -20,7 +20,8 @@
         "foregroundImage": "./assets/images/sonus_logo.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.callumelder.Sonus"
     },
     "web": {
       "bundler": "metro",
